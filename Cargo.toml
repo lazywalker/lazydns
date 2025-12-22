@@ -19,7 +19,7 @@ tokio = { version = "1.35", default-features = false, features = [
 ] }
 
 # DNS protocol
-hickory-proto = "0.24"
+hickory-proto = "0.25"
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }
