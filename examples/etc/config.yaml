@@ -352,8 +352,6 @@ plugins:
       # check hosts files first
       - exec: $hosts_files
       - matches: has_resp
-        exec: $audit
-      - matches: has_resp
         exec: accept
 
       # reject PTR and DNSSEC to fix some iOS issues
@@ -375,15 +373,11 @@ plugins:
       - matches: "!qname 00006801.com"
         exec: $cache
       - matches: has_resp
-        exec: $audit
-      - matches: has_resp
         exec: accept
 
       # domestic domains
       - matches: qname $domain_direct_list
         exec: $upstream_direct
-      - matches: has_resp
-        exec: $audit
       - matches: has_resp
         exec: accept
 
@@ -391,14 +385,10 @@ plugins:
       - matches: qname $domain_proxy_list
         exec: $upstream_proxy
       - matches: has_resp
-        exec: $audit
-      - matches: has_resp
         exec: jump sequence_gfwlist
 
       # other unknown domains
       - exec: $fallback
-      # Log responses from fallback
-      - exec: $audit
 
   # ========================================================================
   # Server Configurations, listen on multiple protocols and ports
