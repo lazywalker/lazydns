@@ -517,8 +517,6 @@ plugins:
         # or use the upstream_reject defined above
         # exec: $upstream_reject
 
-      - exec: prefer_ipv4
-
       - exec: $redirect
 
       # skip cache for dynamic domains, others use cache
