@@ -95,7 +95,7 @@ once_cell = "1.19"
 linkme = "0.3"
 regex = "1.10"
 ipnet = "2.9"
-rand = "0.9"
+rand = "0.10"
 libc = "0.2"
 
 # WebUI dependencies (optional)
