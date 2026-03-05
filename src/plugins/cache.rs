@@ -857,6 +857,10 @@ impl Plugin for CachePlugin {
                         let response_ref = Arc::make_mut(&mut response_arc);
                         Self::update_ttls(response_ref, STALE_RESPONSE_TTL_SECS); // stale response TTL is fixed to 5s (matches upstream)
                         response_ref.set_id(context.request().id());
+                        // CRITICAL FIX: Sync request QUESTION SECTION to avoid query/response mismatch
+                        // This ensures the response matches the client's query, not the cached query
+                        let request_questions = context.request().questions().to_vec();
+                        *response_ref.questions_mut() = request_questions;
                         context.set_response_arc(Some(response_arc));
 
                         // Mark that response came from cache to prevent Phase 2 re-execution
@@ -1012,6 +1016,10 @@ impl Plugin for CachePlugin {
                     let response_ref = Arc::make_mut(&mut response_arc);
                     Self::update_ttls(response_ref, remaining_ttl);
                     response_ref.set_id(context.request().id());
+                    // CRITICAL FIX: Sync request QUESTION SECTION to avoid query/response mismatch
+                    // This ensures the response matches the client's query, not the cached query
+                    let request_questions = context.request().questions().to_vec();
+                    *response_ref.questions_mut() = request_questions;
                     context.set_response_arc(Some(response_arc));
 
                     // Mark that response came from cache to prevent Phase 2 re-execution
@@ -1125,6 +1133,10 @@ impl Plugin for CachePlugin {
                         let response_ref = Arc::make_mut(&mut response_arc);
                         Self::update_ttls(response_ref, remaining_ttl);
                         response_ref.set_id(context.request().id());
+                        // CRITICAL FIX: Sync request QUESTION SECTION to avoid query/response mismatch
+                        // This ensures the response matches the client's query, not the cached query
+                        let request_questions = context.request().questions().to_vec();
+                        *response_ref.questions_mut() = request_questions;
                         context.set_response_arc(Some(response_arc));
 
                         // Mark that response came from cache to prevent Phase 2 re-execution
