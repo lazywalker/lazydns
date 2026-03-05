@@ -852,16 +852,15 @@ impl Plugin for CachePlugin {
                         );
 
                         // Return stale response with a small TTL while refreshing in background
-                        // Prefer copy-on-write via Arc::make_mut to avoid deep cloning when unnecessary
-                        let mut response_arc = Arc::clone(&entry.response);
-                        let response_ref = Arc::make_mut(&mut response_arc);
-                        Self::update_ttls(response_ref, STALE_RESPONSE_TTL_SECS); // stale response TTL is fixed to 5s (matches upstream)
-                        response_ref.set_id(context.request().id());
-                        // CRITICAL FIX: Sync request QUESTION SECTION to avoid query/response mismatch
-                        // This ensures the response matches the client's query, not the cached query
+                        // CRITICAL: Must deep clone the response to avoid modifying cached object
+                        // Arc::make_mut only clones if refcount > 1, so we must explicitly clone
+                        let mut response = (*entry.response).clone();
+                        Self::update_ttls(&mut response, STALE_RESPONSE_TTL_SECS);
+                        response.set_id(context.request().id());
+                        // Sync request QUESTION SECTION to avoid query/response mismatch
                         let request_questions = context.request().questions().to_vec();
-                        *response_ref.questions_mut() = request_questions;
-                        context.set_response_arc(Some(response_arc));
+                        *response.questions_mut() = request_questions;
+                        context.set_response_arc(Some(Arc::new(response)));
 
                         // Mark that response came from cache to prevent Phase 2 re-execution
                         context.set_metadata("response_from_cache", true);
@@ -1011,16 +1010,14 @@ impl Plugin for CachePlugin {
 
                 if should_lazy_refresh {
                     // LazyCache: return cached response immediately, spawn background refresh
-                    // Prefer copy-on-write via Arc::make_mut to avoid deep cloning when unnecessary
-                    let mut response_arc = Arc::clone(&entry.response);
-                    let response_ref = Arc::make_mut(&mut response_arc);
-                    Self::update_ttls(response_ref, remaining_ttl);
-                    response_ref.set_id(context.request().id());
-                    // CRITICAL FIX: Sync request QUESTION SECTION to avoid query/response mismatch
-                    // This ensures the response matches the client's query, not the cached query
+                    // CRITICAL: Must deep clone the response to avoid modifying cached object
+                    let mut response = (*entry.response).clone();
+                    Self::update_ttls(&mut response, remaining_ttl);
+                    response.set_id(context.request().id());
+                    // Sync request QUESTION SECTION to avoid query/response mismatch
                     let request_questions = context.request().questions().to_vec();
-                    *response_ref.questions_mut() = request_questions;
-                    context.set_response_arc(Some(response_arc));
+                    *response.questions_mut() = request_questions;
+                    context.set_response_arc(Some(Arc::new(response)));
 
                     // Mark that response came from cache to prevent Phase 2 re-execution
                     context.set_metadata("response_from_cache", true);
@@ -1127,17 +1124,15 @@ impl Plugin for CachePlugin {
                         // Don't return cached response, let downstream execute to get fresh data
                         return Ok(());
                     } else {
-                        // Normal cache hit: clone the inner Message from the Arc so we can mutate it
-                        // Normal cache hit: prefer copy-on-write via Arc::make_mut
-                        let mut response_arc = Arc::clone(&entry.response);
-                        let response_ref = Arc::make_mut(&mut response_arc);
-                        Self::update_ttls(response_ref, remaining_ttl);
-                        response_ref.set_id(context.request().id());
-                        // CRITICAL FIX: Sync request QUESTION SECTION to avoid query/response mismatch
-                        // This ensures the response matches the client's query, not the cached query
+                        // Normal cache hit: deep clone to avoid modifying cached object
+                        // CRITICAL: Don't use Arc::make_mut - it only clones if refcount > 1
+                        let mut response = (*entry.response).clone();
+                        Self::update_ttls(&mut response, remaining_ttl);
+                        response.set_id(context.request().id());
+                        // Sync request QUESTION SECTION to avoid query/response mismatch
                         let request_questions = context.request().questions().to_vec();
-                        *response_ref.questions_mut() = request_questions;
-                        context.set_response_arc(Some(response_arc));
+                        *response.questions_mut() = request_questions;
+                        context.set_response_arc(Some(Arc::new(response)));
 
                         // Mark that response came from cache to prevent Phase 2 re-execution
                         context.set_metadata("response_from_cache", true);
