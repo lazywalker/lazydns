@@ -53,18 +53,18 @@ web:
   event_bus_capacity: 1024
   # Metrics collection configuration
   metrics:
-    window_secs: 300  # 5 minutes sliding window
-    top_n: 10         # Track top 10 domains/clients
+    window_secs: 300 # 5 minutes sliding window
+    top_n: 10 # Track top 10 domains/clients
   # SSE configuration
   sse:
     keepalive_secs: 30
     max_connections: 100
-  # WebSocket configuration  
+  # WebSocket configuration
   websocket:
     max_connections: 50
   # CORS configuration (for development)
   cors:
-    allowed_origins: []  # Empty = allow all
+    allowed_origins: [] # Empty = allow all
   alerts:
     enabled: true
     dedup_window_secs: 60
@@ -77,7 +77,7 @@ web:
           event_type: "rate_limit_exceeded"
         severity: warning
         message: "Rate limit exceeded for {client_ip}"
-      
+
       # Alert when domain is blocked
       - name: "Blocked Domain Query"
         condition:
@@ -85,7 +85,7 @@ web:
           event_type: "blocked_domain_query"
         severity: warning
         message: "Query blocked for {domain} from {client_ip}"
-      
+
       # Alert when upstream DNS fails
       - name: "Upstream DNS Failure"
         condition:
@@ -93,7 +93,7 @@ web:
           event_type: "upstream_failure"
         severity: critical
         message: "Upstream DNS server failed"
-      
+
       # Alert when ACL denies access
       - name: "ACL Denied"
         condition:
@@ -101,7 +101,7 @@ web:
           event_type: "acl_denied"
         severity: warning
         message: "ACL denied query from {client_ip} for {domain}"
-      
+
       # Alert when query is malformed
       - name: "Malformed Query"
         condition:
@@ -109,7 +109,7 @@ web:
           event_type: "malformed_query"
         severity: info
         message: "Malformed DNS query from {client_ip} for {domain}"
-      
+
       # Alert when query times out
       - name: "Query Timeout"
         condition:
@@ -117,7 +117,6 @@ web:
           event_type: "query_timeout"
         severity: warning
         message: "Query timeout for {domain}"
-    
 
 # ============================================================================
 # PLUGINS CONFIGURATION
@@ -296,7 +295,7 @@ plugins:
   # ========================================================================
   # Global buffer and rotation settings apply to both query_log and security_events
   # unless overridden at the individual log level.
-  
+
   - tag: audit
     type: audit
     args:
@@ -368,12 +367,12 @@ plugins:
 
         # Events to track (empty list = log all events)
         events:
-          - rate_limit_exceeded       # Client exceeded query rate limit
-          - blocked_domain_query      # Query for a blocked domain
-          - upstream_failure          # Upstream DNS server failed
-          - acl_denied                # Query denied by ACL rules
-          - malformed_query           # Malformed DNS query
-          - query_timeout             # Query timeout occurred
+          - rate_limit_exceeded # Client exceeded query rate limit
+          - blocked_domain_query # Query for a blocked domain
+          - upstream_failure # Upstream DNS server failed
+          - acl_denied # Query denied by ACL rules
+          - malformed_query # Malformed DNS query
+          - query_timeout # Query timeout occurred
 
         # Include full query details in security event logs (default: true)
         include_query_details: true
@@ -416,7 +415,7 @@ plugins:
   - tag: upstream_direct
     type: forward
     args:
-      concurrent: 2
+      concurrent: 1
       upstreams:
         - addr: udp://119.29.29.29 # Tencent Public DNS
         - addr: udp://223.5.5.5 # AliDNS Public DNS
@@ -427,7 +426,7 @@ plugins:
   - tag: upstream_proxy
     type: forward
     args:
-      concurrent: 2
+      concurrent: 1
       upstreams:
         - addr: tcp://8.8.8.8 # Google Public DNS
         - addr: tcp://1.1.1.1 # Cloudflare DNS
@@ -450,7 +449,7 @@ plugins:
     type: domain_validator
     args:
       cache_size: 1000
-  
+
   # ========================================================================
   # Sub sequence and Fallback Logic
   # ========================================================================
@@ -498,9 +497,9 @@ plugins:
   - tag: sequence_main
     type: sequence
     args:
-      - exec: $validator
-      - exec: $rate_limiter_default
-      
+      # - exec: $validator
+      # - exec: $rate_limiter_default
+
       # check hosts files first
       - exec: $hosts_files
       - matches: has_resp
@@ -522,8 +521,10 @@ plugins:
       - exec: $redirect
 
       # skip cache for dynamic domains, others use cache
-      - matches: "!qname 00006801.com"
-        exec: $cache
+      # - matches: "!qname 00006801.com"
+      #   exec: $cache
+      - exec: $cache
+
       - matches: has_resp
         exec: accept
 
@@ -611,24 +612,24 @@ log:
   file:
     # Enable file logging (default: false)
     enabled: false
-    
+
     # Path to log file
     path: /var/log/lazydns/lazydns.log
-    
+
     # Rotation configuration
     rotation:
       # Rotation type: time, size, both, or never
       type: size
-      
+
       # Time period: daily or hourly (for type: time or both)
       period: daily
-      
+
       # Max file size in bytes (for type: size or both)
-      max_size: 10M   # 10MB
-      
+      max_size: 10M # 10MB
+
       # Number of rotated files to keep (for type: size or both)
       max_files: 5
-      
+
       # Compress rotated files (future feature)
       compress: false
 
