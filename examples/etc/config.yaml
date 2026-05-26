@@ -415,7 +415,7 @@ plugins:
   - tag: upstream_direct
     type: forward
     args:
-      concurrent: 1
+      concurrent: 2
       upstreams:
         - addr: udp://119.29.29.29 # Tencent Public DNS
         - addr: udp://223.5.5.5 # AliDNS Public DNS
@@ -426,7 +426,7 @@ plugins:
   - tag: upstream_proxy
     type: forward
     args:
-      concurrent: 1
+      concurrent: 2
       upstreams:
         - addr: tcp://8.8.8.8 # Google Public DNS
         - addr: tcp://1.1.1.1 # Cloudflare DNS

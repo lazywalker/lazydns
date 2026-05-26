@@ -98,7 +98,7 @@ impl<K: Hash + Eq + Clone> TopN<K> {
         let mut items: Vec<(K, u64)> = counts.iter().map(|(k, v)| (k.clone(), v.count)).collect();
 
         // Sort by count descending
-        items.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        items.sort_unstable_by_key(|item| std::cmp::Reverse(item.1));
 
         // Take top N
         items.truncate(self.n);
@@ -118,7 +118,7 @@ impl<K: Hash + Eq + Clone> TopN<K> {
             .collect();
 
         // Sort by count descending
-        items.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        items.sort_unstable_by_key(|item| std::cmp::Reverse(item.1));
 
         // Take top N
         items.truncate(self.n);
