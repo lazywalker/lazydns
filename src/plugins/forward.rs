@@ -10,6 +10,7 @@ use crate::config::PluginConfig;
 use crate::dns::Message;
 use crate::plugin::{Context, Plugin};
 use async_trait::async_trait;
+use dashmap::DashMap;
 use reqwest::Client as HttpClient;
 use serde_yaml::Value;
 use std::any::Any;
@@ -18,9 +19,9 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, AtomicUsize, Ordering};
 use tokio::net::UdpSocket;
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, oneshot};
 use tokio::time::{Duration, Instant, timeout};
 use tracing::{debug, trace, warn};
 
@@ -169,6 +170,24 @@ impl Upstream {
     }
 }
 
+/// State for UDP response multiplexing.
+///
+/// Instead of having every `forward_query_udp` call do a raw `recv_from` on
+/// a shared socket (which can receive any concurrent query's response), we
+/// allocate a unique DNS query ID for each outgoing request and run a
+/// background read loop that dispatches responses to the correct waiter
+/// based on that ID. This eliminates cross-request response pollution under
+/// high concurrency.
+#[derive(Debug)]
+struct UdpMuxState {
+    /// The single shared UDP socket bound to `0.0.0.0:0`.
+    socket: UdpSocket,
+    /// Pending queries: qid → oneshot sender for the response.
+    pending: DashMap<u16, oneshot::Sender<Message>>,
+    /// Monotonically increasing query-ID counter.
+    next_qid: AtomicU16,
+}
+
 /// Core forwarding logic used by the `ForwardPlugin`.
 ///
 /// `Forward` implements the actual network operations to contact upstream
@@ -189,8 +208,9 @@ pub struct Forward {
     pub max_attempts: usize,
     /// Shared HTTP client for DoH queries (lazily initialized)
     doh_client: Arc<OnceCell<HttpClient>>,
-    /// Shared UDP socket for forwarding (lazily initialized)
-    udp_socket: Arc<OnceCell<UdpSocket>>,
+    /// Shared UDP multiplexing state (lazily initialized).
+    /// Contains the socket, pending-query map, and the read-loop.
+    udp_mux: Arc<OnceCell<Arc<UdpMuxState>>>,
     /// Whether to accept invalid TLS certificates (for testing)
     accept_invalid_certs: bool,
 }
@@ -207,7 +227,7 @@ impl Forward {
             health_checks_enabled: false,
             max_attempts: 3,
             doh_client: Arc::new(OnceCell::new()),
-            udp_socket: Arc::new(OnceCell::new()),
+            udp_mux: Arc::new(OnceCell::new()),
             accept_invalid_certs,
         }
     }
@@ -274,55 +294,127 @@ impl Forward {
         }
     }
 
-    /// Forward via UDP/TCP
+    /// Forward via UDP with response multiplexing.
     ///
-    /// Uses a shared UDP socket that is lazily initialized on first use.
-    /// This avoids creating a new socket for every query, reducing syscall
-    /// overhead and ephemeral port exhaustion.
+    /// Each outgoing query is assigned a unique DNS transaction ID. A
+    /// background read-loop demultiplexes incoming datagrams and routes
+    /// them to the correct waiter based on that ID. This prevents the
+    /// cross-request response pollution that would otherwise occur when
+    /// multiple callers share a single UDP socket.
     async fn forward_query_udp(&self, request: &Message, upstream: &str) -> Result<Message> {
         let upstream_addr = SocketAddr::from_str(upstream)
             .map_err(|e| crate::Error::Config(format!("Invalid upstream address: {}", e)))?;
 
-        // Get or initialize the shared UDP socket
-        let socket = self
-            .udp_socket
-            .get_or_try_init(|| async { UdpSocket::bind("0.0.0.0:0").await })
+        // Get or initialize the shared UDP multiplexing state.
+        let mux = self
+            .udp_mux
+            .get_or_try_init(|| async {
+                let socket = UdpSocket::bind("0.0.0.0:0").await?;
+                let state = Arc::new(UdpMuxState {
+                    socket,
+                    pending: DashMap::new(),
+                    next_qid: AtomicU16::new(1), // start at 1, reserve 0
+                });
+                // Spawn the background read-loop that dispatches responses.
+                let state_clone = Arc::clone(&state);
+                tokio::spawn(Self::read_loop(state_clone));
+                Ok::<_, crate::Error>(state)
+            })
             .await?;
 
-        let request_data = Self::serialize_message(request)?;
-
-        let sent = socket.send_to(&request_data, upstream_addr).await?;
-        trace!("Sent {} bytes to upstream {}", sent, upstream_addr);
-
-        // Use a larger buffer to handle EDNS0 responses (up to 4096 bytes)
-        let mut response_buf = vec![0u8; 4096];
-        let recv_res = timeout(self.timeout, socket.recv_from(&mut response_buf)).await;
-        let (len, _) = match recv_res {
-            Ok(Ok((len, peer))) => {
-                trace!("Received {} bytes from upstream {}", len, peer);
-                (len, peer)
+        // Allocate a unique query ID, skipping IDs that are still in-flight.
+        let assigned_qid = loop {
+            let qid = mux.next_qid.fetch_add(1, Ordering::Relaxed);
+            if qid != 0 && !mux.pending.contains_key(&qid) {
+                break qid;
             }
-            Ok(Err(e)) => {
-                warn!("Error receiving from upstream {}: {}", upstream_addr, e);
-                return Err(crate::Error::Connection {
+        };
+
+        // Build the wire-format request with the allocated qid.
+        let original_qid = request.id();
+        let mut request_data = Self::serialize_message(request)?;
+        request_data[0] = (assigned_qid >> 8) as u8;
+        request_data[1] = (assigned_qid & 0xFF) as u8;
+
+        // Create a oneshot channel and register it so the read-loop can
+        // deliver the matching response.
+        let (tx, rx) = oneshot::channel();
+        mux.pending.insert(assigned_qid, tx);
+
+        // Send the query.
+        let sent = mux.socket.send_to(&request_data, upstream_addr).await?;
+        trace!(
+            "Sent {} bytes to upstream {} (qid {} -> {})",
+            sent, upstream_addr, original_qid, assigned_qid
+        );
+
+        // Wait for the matched response (with timeout).
+        let recv_res = timeout(self.timeout, rx).await;
+
+        // Always clean up the pending entry.
+        mux.pending.remove(&assigned_qid);
+
+        match recv_res {
+            Ok(Ok(mut response)) => {
+                // Restore the original query ID that the caller expects.
+                response.set_id(original_qid);
+                trace!("Received response from upstream {}", upstream_addr);
+                Ok(response)
+            }
+            Ok(Err(_)) => {
+                warn!(
+                    "Channel closed for upstream {} (qid {})",
+                    upstream_addr, assigned_qid
+                );
+                Err(crate::Error::Connection {
                     address: upstream_addr.to_string(),
-                    reason: e.to_string(),
-                });
+                    reason: "response channel closed unexpectedly".to_string(),
+                })
             }
             Err(_) => {
                 warn!(
                     "Timeout waiting for response from upstream {}",
                     upstream_addr
                 );
-                return Err(crate::Error::UpstreamTimeout {
+                Err(crate::Error::UpstreamTimeout {
                     upstream: upstream_addr.to_string(),
                     timeout_ms: self.timeout.as_millis() as u64,
-                });
+                })
             }
-        };
+        }
+    }
 
-        let response = Self::parse_message(&response_buf[..len])?;
-        Ok(response)
+    /// Background task that continuously reads datagrams from the shared
+    /// UDP socket and dispatches them to the correct waiter based on the
+    /// DNS query ID embedded in the response.
+    async fn read_loop(state: Arc<UdpMuxState>) {
+        loop {
+            let mut buf = vec![0u8; 4096];
+            match state.socket.recv_from(&mut buf).await {
+                Ok((len, addr)) => {
+                    match Self::parse_message(&buf[..len]) {
+                        Ok(response) => {
+                            let qid = response.id();
+                            if let Some((_, tx)) = state.pending.remove(&qid) {
+                                // Deliver to the exact waiter that sent this qid.
+                                let _ = tx.send(response);
+                                trace!("Delivered response qid {} from {} to waiter", qid, addr);
+                            } else {
+                                trace!("Dropped unsolicited response qid {} from {}", qid, addr);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse DNS response from {}: {}", addr, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("UDP recv error in read_loop: {}", e);
+                    // Brief back-off to avoid busy-looping on permanent errors.
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
     }
 
     /// Forward via DNS over HTTPS
