@@ -3,7 +3,7 @@ members = [".", "lazydns-macros"]
 
 [package]
 name = "lazydns"
-version = "0.3.12"
+version = "0.3.13"
 edition = "2024"
 authors = ["lazywalker <lazywalkerz@gmail.com>"]
 description = "A light and fast DNS server/forwarder implementation in Rust"

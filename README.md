@@ -9,7 +9,7 @@
 [![docs.rs](https://docs.rs/lazydns/badge.svg)](https://docs.rs/lazydns)
 [![codecov](https://codecov.io/gh/lazywalker/lazydns/branch/master/graph/badge.svg)](https://codecov.io/gh/lazywalker/lazydns)
 [![Dependabot](https://img.shields.io/badge/Dependabot-enabled-brightgreen.svg)](https://github.com/lazywalker/lazydns/network/updates)
-[![Maintenance](https://img.shields.io/maintenance/yes/2025)](https://github.com/lazywalker/lazydns)
+[![Maintenance](https://img.shields.io/maintenance/yes/2026)](https://github.com/lazywalker/lazydns)
 
 
 ## Documentation

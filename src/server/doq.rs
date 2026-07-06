@@ -81,7 +81,11 @@ impl DoqServer {
             .map_err(|e| crate::Error::Config(format!("Invalid DoQ bind address: {}", e)))?;
 
         let endpoint = Endpoint::server(server_config, addr)?;
-        info!(local = %endpoint.local_addr().unwrap_or_else(|_| "unknown".parse().unwrap()), "DoQ listening");
+        let local = endpoint
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+        info!(local = %local, "DoQ listening");
 
         // Accept incoming QUIC connections
         while let Some(incoming) = endpoint.accept().await {

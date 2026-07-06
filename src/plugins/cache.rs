@@ -427,6 +427,29 @@ impl CachePlugin {
         self
     }
 
+    /// Build a refresh coordinator wired to clean up this cache's
+    /// `refreshing_keys` dedup set when each task completes.
+    ///
+    /// Without this callback, `refreshing_keys` would only ever be cleaned on
+    /// the enqueue-failure paths, so the first successful background refresh
+    /// would leave its key permanently in the set and block all future
+    /// background refreshes for that key.
+    fn build_coordinator(
+        worker_count: usize,
+        queue_capacity: usize,
+        refreshing_keys: Arc<DashSet<String>>,
+    ) -> RefreshCoordinator {
+        RefreshCoordinator::new_with_callback(
+            worker_count,
+            queue_capacity,
+            // Remove the key from the dedup set regardless of outcome so the
+            // next lazy/stale hit can schedule a fresh refresh.
+            Some(Arc::new(move |key: &str, _success: bool| {
+                refreshing_keys.remove(key);
+            })),
+        )
+    }
+
     /// Enable lazycache optimization
     ///
     /// LazyCache refreshes frequently accessed entries before they expire,
@@ -441,7 +464,11 @@ impl CachePlugin {
         // Initialize coordinator if not already present (non-blocking try_lock)
         match self.refresh_coordinator.try_lock() {
             Ok(mut guard) if guard.is_none() => {
-                *guard = Some(RefreshCoordinator::new(4, 1000));
+                *guard = Some(Self::build_coordinator(
+                    4,
+                    1000,
+                    Arc::clone(&self.refreshing_keys),
+                ));
             }
             _ => {}
         }
@@ -455,7 +482,11 @@ impl CachePlugin {
             // Initialize coordinator if not already present (non-blocking try_lock)
             match self.refresh_coordinator.try_lock() {
                 Ok(mut guard) if guard.is_none() => {
-                    *guard = Some(RefreshCoordinator::new(4, 1000));
+                    *guard = Some(Self::build_coordinator(
+                        4,
+                        1000,
+                        Arc::clone(&self.refreshing_keys),
+                    ));
                 }
                 _ => {}
             }
@@ -523,6 +554,15 @@ impl CachePlugin {
     }
     pub fn size(&self) -> usize {
         self.cache.read().len()
+    }
+
+    /// Whether a key is currently marked as refreshing (in flight in a
+    /// background refresh). Exposed for integration tests to verify the
+    /// completion callback clears the dedup set after a refresh finishes;
+    /// not part of the stable public API.
+    #[doc(hidden)]
+    pub fn is_refreshing(&self, key: &str) -> bool {
+        self.refreshing_keys.contains(key)
     }
 
     /// Cleanup expired cache entries
@@ -1318,11 +1358,19 @@ impl Plugin for CachePlugin {
             // Initialize coordinator only if not already set by builder methods
             if let Ok(mut guard) = cache.refresh_coordinator.try_lock() {
                 if guard.is_none() {
-                    *guard = Some(RefreshCoordinator::new(worker_count, queue_capacity));
+                    *guard = Some(Self::build_coordinator(
+                        worker_count,
+                        queue_capacity,
+                        Arc::clone(&cache.refreshing_keys),
+                    ));
                 }
             } else {
                 // If mutex is currently locked, replace to ensure initialization
-                let coordinator = RefreshCoordinator::new(worker_count, queue_capacity);
+                let coordinator = Self::build_coordinator(
+                    worker_count,
+                    queue_capacity,
+                    Arc::clone(&cache.refreshing_keys),
+                );
                 cache.refresh_coordinator = Arc::new(Mutex::new(Some(coordinator)));
             }
         }

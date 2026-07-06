@@ -202,7 +202,12 @@ impl TcpServer {
         let response_data = serialize_dns_response(&response)?;
 
         // Write length prefix
-        let len = response_data.len() as u16;
+        let len = u16::try_from(response_data.len()).map_err(|_| {
+            Error::Other(format!(
+                "response too large for TCP DNS framing: {} bytes (max 65535)",
+                response_data.len()
+            ))
+        })?;
         stream
             .write_all(&len.to_be_bytes())
             .await

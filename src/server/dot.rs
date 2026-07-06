@@ -216,7 +216,12 @@ impl DotServer {
             trace!(peer = ?peer_addr, id = response.id(), answers = response.answer_count(), "Sending DoT response");
 
             // Write response length
-            let response_len = response_data.len() as u16;
+            let response_len = u16::try_from(response_data.len()).map_err(|_| {
+                Error::Other(format!(
+                    "response too large for DoT DNS framing: {} bytes (max 65535)",
+                    response_data.len()
+                ))
+            })?;
             tls_stream
                 .write_all(&response_len.to_be_bytes())
                 .await

@@ -179,3 +179,65 @@ async fn integration_cache_ttl_triggers_stale_serving() {
 
     wait_for_call_count(&call_count, 2).await;
 }
+
+/// Regression test for the `refreshing_keys` leak.
+///
+/// Before the fix, the cache's `refreshing_keys` dedup set was only cleared
+/// on the enqueue-failure paths. After the first successful background
+/// refresh, the key stayed in the set forever, so every subsequent lazy hit
+/// was skipped with "already being refreshed" and LazyCache prefetch silently
+/// died after the first success.
+///
+/// This test triggers one background refresh and asserts the key is removed
+/// from `refreshing_keys` once the refresh completes (via the test-only
+/// `is_refreshing` accessor). With the leak, the key would remain forever.
+#[tokio::test]
+async fn integration_lazycache_refresh_key_is_cleared_after_completion() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let resolver = Arc::new(TestResponder::new(2, Arc::clone(&call_count)));
+    let handler = build_handler(&resolver);
+    let cache = CachePlugin::new(32).with_lazycache(0.5);
+    let request = make_request();
+
+    // Populate the cache (resolver call #1).
+    let mut populate_ctx = prepare_context(&request, &handler);
+    cache
+        .execute(&mut populate_ctx)
+        .await
+        .expect("cache phase 1");
+    resolver
+        .execute(&mut populate_ctx)
+        .await
+        .expect("resolver produced a response");
+    cache
+        .execute(&mut populate_ctx)
+        .await
+        .expect("cache stored response");
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // Wait until the remaining TTL drops below the 50% threshold, then hit
+    // the cache to trigger a background refresh (resolver call #2).
+    sleep(Duration::from_millis(1_200)).await;
+    let mut lazy_hit = prepare_context(&request, &handler);
+    cache
+        .execute(&mut lazy_hit)
+        .await
+        .expect("lazy hit triggers refresh");
+    wait_for_call_count(&call_count, 2).await;
+
+    // Cache key used by make_request ("example.com", A, IN).
+    let key = "example.com:1:1";
+
+    // The completion callback runs after the worker finishes (regardless of
+    // outcome). Give it a short grace period past call_count==2, then assert
+    // the key has been removed from the dedup set.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while cache.is_refreshing(key) && Instant::now() < deadline {
+        sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        !cache.is_refreshing(key),
+        "refreshing_keys was not cleared after background refresh completed \
+         (leak regression): the key would block all future LazyCache refreshes"
+    );
+}
