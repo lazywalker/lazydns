@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, AtomicU64, AtomicUsize, Ordering};
 use tokio::net::UdpSocket;
 use tokio::sync::{OnceCell, oneshot};
-use tokio::time::{Duration, Instant, timeout};
+use tokio::time::{Duration, Instant};
 use tracing::{debug, trace, warn};
 
 /// Load balancing strategy for upstream selection
@@ -338,7 +338,7 @@ impl Forward {
 
         // Create a oneshot channel and register it so the read-loop can
         // deliver the matching response.
-        let (tx, rx) = oneshot::channel();
+        let (tx, mut rx) = oneshot::channel();
         mux.pending.insert(assigned_qid, tx);
 
         // Send the query.
@@ -348,30 +348,47 @@ impl Forward {
             sent, upstream_addr, original_qid, assigned_qid
         );
 
-        // Wait for the matched response (with timeout).
-        let recv_res = timeout(self.timeout, rx).await;
-
-        // Always clean up the pending entry.
-        mux.pending.remove(&assigned_qid);
-
-        match recv_res {
-            Ok(Ok(mut response)) => {
-                // Restore the original query ID that the caller expects.
-                response.set_id(original_qid);
-                trace!("Received response from upstream {}", upstream_addr);
-                Ok(response)
+        // Wait for the matched response, racing it fairly against the timeout.
+        //
+        // Using `select!` (instead of `timeout(d, rx)`) ensures that if the
+        // response arrives from read_loop at roughly the same instant the
+        // deadline fires, the response still wins a fair branch selection.
+        // With the previous `timeout().await` + unconditional
+        // `pending.remove()`, a response already delivered into the oneshot
+        // could be discarded when the timeout branch completed first, causing
+        // a spurious query failure under load.
+        //
+        // Cleanup note: when the response wins, read_loop has already removed
+        // the entry from `pending`. When the timeout/closed branches win, we
+        // remove the entry here so a late response is dropped by read_loop.
+        tokio::select! {
+            biased; // prefer the response branch over the timer
+            received = &mut rx => {
+                // The pending entry was already removed by read_loop before
+                // sending, so no extra cleanup is needed on this path.
+                match received {
+                    Ok(mut response) => {
+                        // Restore the original query ID that the caller expects.
+                        response.set_id(original_qid);
+                        trace!("Received response from upstream {}", upstream_addr);
+                        Ok(response)
+                    }
+                    Err(_) => {
+                        warn!(
+                            "Channel closed for upstream {} (qid {})",
+                            upstream_addr, assigned_qid
+                        );
+                        Err(crate::Error::Connection {
+                            address: upstream_addr.to_string(),
+                            reason: "response channel closed unexpectedly".to_string(),
+                        })
+                    }
+                }
             }
-            Ok(Err(_)) => {
-                warn!(
-                    "Channel closed for upstream {} (qid {})",
-                    upstream_addr, assigned_qid
-                );
-                Err(crate::Error::Connection {
-                    address: upstream_addr.to_string(),
-                    reason: "response channel closed unexpectedly".to_string(),
-                })
-            }
-            Err(_) => {
+            _ = tokio::time::sleep(self.timeout) => {
+                // Timed out: ensure no dangling pending entry remains so that
+                // any late response is treated as unsolicited and dropped.
+                mux.pending.remove(&assigned_qid);
                 warn!(
                     "Timeout waiting for response from upstream {}",
                     upstream_addr

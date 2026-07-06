@@ -46,6 +46,12 @@ pub struct RefreshTask {
 /// - Can be generalized to handle file reload tasks
 /// - Can support priority queues
 /// - Can add adaptive worker scaling
+//
+// Completion callback type: invoked with (key, success) after each task
+// finishes. Used by the cache plugin to remove the key from its
+// `refreshing_keys` set so the key can be refreshed again later.
+type CompletionCallback = dyn Fn(&str, bool) + Send + Sync;
+
 pub struct RefreshCoordinator {
     /// Channel sender for enqueueing tasks
     tx: mpsc::Sender<RefreshTask>,
@@ -67,10 +73,27 @@ impl RefreshCoordinator {
     /// # Returns
     /// Self with running worker pool
     pub fn new(worker_count: usize, queue_capacity: usize) -> Self {
+        Self::new_with_callback(worker_count, queue_capacity, None)
+    }
+
+    /// Create a coordinator with a completion callback.
+    ///
+    /// The callback is invoked after each task finishes processing (regardless
+    /// of outcome) with the task key and a `success` flag. The cache plugin
+    /// uses this to remove the key from its `refreshing_keys` set so that
+    /// subsequent background refreshes are not permanently blocked.
+    pub fn new_with_callback(
+        worker_count: usize,
+        queue_capacity: usize,
+        on_complete: Option<Arc<CompletionCallback>>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel(queue_capacity);
         let rx = Arc::new(tokio::sync::Mutex::new(rx));
         let processing = Arc::new(DashSet::new());
         let stats = Arc::new(RefreshStats::new());
+        // Default to a no-op callback so worker_loop can always invoke it.
+        let on_complete: Arc<CompletionCallback> =
+            on_complete.unwrap_or_else(|| Arc::new(|_, _| {}));
         let mut handles = Vec::with_capacity(worker_count);
 
         debug!(
@@ -84,9 +107,17 @@ impl RefreshCoordinator {
             let rx_clone = Arc::clone(&rx);
             let processing_clone = Arc::clone(&processing);
             let stats_clone = Arc::clone(&stats);
+            let on_complete_clone = Arc::clone(&on_complete);
 
             let handle = tokio::spawn(async move {
-                Self::worker_loop(worker_id, rx_clone, processing_clone, stats_clone).await;
+                Self::worker_loop(
+                    worker_id,
+                    rx_clone,
+                    processing_clone,
+                    stats_clone,
+                    on_complete_clone,
+                )
+                .await;
             });
 
             handles.push(handle);
@@ -196,6 +227,7 @@ impl RefreshCoordinator {
         rx: Arc<tokio::sync::Mutex<mpsc::Receiver<RefreshTask>>>,
         processing: Arc<DashSet<String>>,
         stats: Arc<RefreshStats>,
+        on_complete: Arc<CompletionCallback>,
     ) {
         trace!(worker_id = worker_id, "Refresh worker started");
 
@@ -227,7 +259,7 @@ impl RefreshCoordinator {
                     let duration = start.elapsed();
                     stats.record_processed();
 
-                    match result {
+                    let success = match result {
                         Ok(Ok(_)) => {
                             stats.record_success();
                             debug!(
@@ -236,6 +268,7 @@ impl RefreshCoordinator {
                                 duration_ms = duration.as_millis(),
                                 "Refresh succeeded"
                             );
+                            true
                         }
                         Ok(Err(e)) => {
                             stats.record_failed();
@@ -246,6 +279,7 @@ impl RefreshCoordinator {
                                 error = %e,
                                 "Refresh failed"
                             );
+                            false
                         }
                         Err(_) => {
                             stats.record_timeout();
@@ -255,11 +289,18 @@ impl RefreshCoordinator {
                                 timeout_secs = REFRESH_TIMEOUT.as_secs(),
                                 "Refresh timeout"
                             );
+                            false
                         }
-                    }
+                    };
 
                     // Remove from processing set
                     processing.remove(&key);
+
+                    // Notify completion callback so callers (e.g. CachePlugin)
+                    // can clean up their own dedup state. This runs for every
+                    // outcome (success/failure/timeout) to guarantee no key is
+                    // left permanently locked in the caller's dedup set.
+                    on_complete(&key, success);
                 }
                 None => {
                     // Channel closed, worker exits
