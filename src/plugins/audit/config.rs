@@ -223,22 +223,32 @@ fn parse_size(s: &str) -> Result<u64, String> {
         return Err("empty size string".to_string());
     }
 
-    let (num_str, unit) = if s.chars().last().unwrap().is_alphabetic() {
-        let len = s.len();
-        let last_two = if len >= 2 {
-            s[len - 2..].to_ascii_uppercase()
-        } else {
-            "".to_string()
-        };
+    // Collect char indices so that all slicing is done on char boundaries.
+    // Mixing byte slicing (`s[len-2..]`) with char iteration would panic on a
+    // trailing multi-byte UTF-8 character (e.g. a non-ASCII unit suffix).
+    let chars: Vec<(usize, char)> = s.char_indices().collect();
+    let last = chars.last().unwrap().1;
 
-        if last_two == "KB" || last_two == "MB" || last_two == "GB" {
-            (
-                &s[..len - 2],
-                s.chars().nth(len - 2).unwrap().to_ascii_uppercase(),
-            )
+    let (num_str, unit) = if last.is_ascii_alphabetic() {
+        // Two-character unit (KB/MB/GB) vs single-char unit (K/M/G).
+        if chars.len() >= 2 {
+            let two_char_unit: String = chars[chars.len() - 2..]
+                .iter()
+                .map(|(_, c)| c.to_ascii_uppercase())
+                .collect();
+            if matches!(two_char_unit.as_str(), "KB" | "MB" | "GB") {
+                let unit_end = chars[chars.len() - 2].0;
+                (
+                    &s[..unit_end],
+                    chars[chars.len() - 2].1.to_ascii_uppercase(),
+                )
+            } else {
+                let unit_start = chars[chars.len() - 1].0;
+                (&s[..unit_start], last.to_ascii_uppercase())
+            }
         } else {
-            let unit_char = s.chars().last().unwrap().to_ascii_uppercase();
-            (&s[..len - 1], unit_char)
+            // Single character total: the whole string is the unit char, no number.
+            return Err(format!("invalid size string: {}", s));
         }
     } else {
         (s, 'B')
@@ -442,5 +452,34 @@ query_log:
             config.query_log.unwrap().max_file_size,
             Some(1024 * 1024 * 1024)
         );
+    }
+
+    /// Regression test for a char-boundary panic in `parse_size`.
+    ///
+    /// The old implementation mixed byte slicing (`s[len-2..]`) with `chars()`
+    /// iteration, so a trailing multi-byte UTF-8 character (e.g. a CJK suffix)
+    /// sliced into the middle of a character and panicked with
+    /// "byte index ... is not a char boundary". The rewritten parser operates
+    /// purely on char indices and must reject such input gracefully.
+    #[test]
+    fn test_parse_size_rejects_multibyte_suffix_without_panic() {
+        // Trailing CJK character: must NOT panic, must be an error.
+        let result = parse_size("100M中文");
+        assert!(result.is_err(), "multibyte suffix should be rejected");
+
+        // Sanity: valid inputs still parse correctly.
+        assert_eq!(parse_size("10M").unwrap(), 10 * 1024 * 1024);
+        assert_eq!(parse_size("100K").unwrap(), 100 * 1024);
+        assert_eq!(parse_size("1G").unwrap(), 1024 * 1024 * 1024);
+        assert_eq!(parse_size("512").unwrap(), 512);
+        assert_eq!(parse_size("5MB").unwrap(), 5 * 1024 * 1024);
+    }
+
+    /// A size string consisting of a single alphabetic character is not a
+    /// valid size (no numeric part) and must be rejected, not panicked on.
+    #[test]
+    fn test_parse_size_single_char_is_error() {
+        assert!(parse_size("M").is_err());
+        assert!(parse_size("").is_err());
     }
 }

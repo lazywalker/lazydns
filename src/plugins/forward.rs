@@ -60,7 +60,7 @@ pub struct UpstreamHealth {
     /// Average response time in microseconds
     pub avg_response_time_us: AtomicU64,
     /// Last successful query timestamp
-    pub last_success: std::sync::Mutex<Option<Instant>>,
+    pub last_success: parking_lot::Mutex<Option<Instant>>,
 }
 
 impl UpstreamHealth {
@@ -71,7 +71,7 @@ impl UpstreamHealth {
             successes: AtomicU64::new(0),
             failures: AtomicU64::new(0),
             avg_response_time_us: AtomicU64::new(0),
-            last_success: std::sync::Mutex::new(None),
+            last_success: parking_lot::Mutex::new(None),
         }
     }
 
@@ -79,20 +79,27 @@ impl UpstreamHealth {
     /// Record a successful query with response time
     pub fn record_success(&self, response_time: Duration) {
         self.queries.fetch_add(1, Ordering::Relaxed);
-        self.successes.fetch_add(1, Ordering::Relaxed);
+        let success_count = self.successes.fetch_add(1, Ordering::Relaxed);
 
-        // Update average response time (simple moving average)
+        // Update the running average atomically. The previous implementation
+        // did a non-atomic load-modify-store across `avg_response_time_us` and
+        // `queries`, so concurrent updates lost samples and skewed the average
+        // (which in turn could mislead the "Fastest" load-balancing strategy).
+        // `fetch_update` retries the CAS until it succeeds, making the update
+        // race-free. `success_count` is the count *before* this increment, so
+        // it is the correct weight for the old average.
         let new_time = response_time.as_micros() as u64;
-        let old_avg = self.avg_response_time_us.load(Ordering::Relaxed);
-        let queries = self.queries.load(Ordering::Relaxed);
-        let new_avg = if queries <= 1 {
-            new_time
-        } else {
-            (old_avg * (queries - 1) + new_time) / queries
-        };
-        self.avg_response_time_us.store(new_avg, Ordering::Relaxed);
+        self.avg_response_time_us
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old_avg| {
+                Some(if success_count == 0 {
+                    new_time
+                } else {
+                    (old_avg * success_count + new_time) / (success_count + 1)
+                })
+            })
+            .ok();
 
-        *self.last_success.lock().unwrap() = Some(Instant::now());
+        *self.last_success.lock() = Some(Instant::now());
     }
 
     /// Record a failed query
@@ -1117,7 +1124,7 @@ impl Plugin for ForwardPlugin {
                         let avg_response_time_us = health
                             .avg_response_time_us
                             .load(std::sync::atomic::Ordering::Relaxed);
-                        let last_success = *health.last_success.lock().unwrap();
+                        let last_success = *health.last_success.lock();
 
                         crate::web::upstream_registry::UpstreamHealthData {
                             queries,
@@ -1183,9 +1190,129 @@ mod tests {
     use crate::dns::types::{RecordClass, RecordType};
     use crate::dns::{Message, Question, RData, ResourceRecord};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, UdpSocket};
 
     // ============ Tests from core Forward logic ============
+
+    /// Spawn a UDP "upstream" that replies to a single query with an A record.
+    /// Returns the address the server is listening on.
+    ///
+    /// If `delay` is set, the server waits that long before responding, which
+    /// lets callers exercise the timeout path of `forward_query_udp`.
+    async fn spawn_udp_upstream(answer_ip: &str, delay: Option<Duration>) -> String {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap().to_string();
+        let ip = answer_ip.to_string();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 4096];
+            let (len, peer) = socket.recv_from(&mut buf).await.unwrap();
+            if let Some(d) = delay {
+                tokio::time::sleep(d).await;
+            }
+            // Parse the request and build a matching response.
+            if let Ok(req) = Forward::parse_message(&buf[..len])
+                && let Some(q) = req.questions().first()
+            {
+                let mut resp = Message::new();
+                resp.set_id(req.id());
+                resp.set_response(true);
+                resp.add_question(q.clone());
+                resp.add_answer(ResourceRecord::new(
+                    q.qname(),
+                    q.qtype(),
+                    q.qclass(),
+                    60,
+                    RData::A(ip.parse().unwrap()),
+                ));
+                if let Ok(data) = Forward::serialize_message(&resp) {
+                    let _ = socket.send_to(&data, peer).await;
+                }
+            }
+        });
+        addr
+    }
+
+    /// Regression test for the UDP response/timeout race (select! fix).
+    ///
+    /// A responding upstream answers within the timeout window. With the old
+    /// `timeout(d, rx)` + unconditional `pending.remove()`, a response that
+    /// landed near the deadline edge could be discarded. This exercises the
+    /// happy path: the response must be delivered with the right answer and
+    /// the original query id restored.
+    #[tokio::test]
+    async fn test_forward_udp_delivers_response_within_timeout() {
+        let upstream = spawn_udp_upstream("9.9.9.9", None).await;
+        let core = Forward::new(
+            vec![Upstream::new(upstream)],
+            Duration::from_secs(2),
+            LoadBalanceStrategy::RoundRobin,
+        );
+
+        let mut req = Message::new();
+        req.set_id(0x1234);
+        req.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+
+        let response = core
+            .forward_query(&req, &core.upstreams[0])
+            .await
+            .expect("response within timeout");
+
+        // The original query id must be restored despite the mux qid remapping.
+        assert_eq!(response.id(), 0x1234);
+        let answer = response
+            .answers()
+            .iter()
+            .find_map(|rr| match rr.rdata() {
+                RData::A(ip) => Some(*ip),
+                _ => None,
+            })
+            .expect("an A record answer");
+        assert_eq!(answer.to_string(), "9.9.9.9");
+    }
+
+    /// Regression test for the UDP timeout branch of the select! fix.
+    ///
+    /// When the upstream never responds within the timeout, the caller must
+    /// receive an `UpstreamTimeout` (not a stale or wrong response), and the
+    /// pending entry must be cleaned up so a later datagram is treated as
+    /// unsolicited.
+    #[tokio::test]
+    async fn test_forward_udp_times_out_when_no_response() {
+        // Server that swallows the query and never replies (lives for the test).
+        let black_hole = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let upstream = black_hole.local_addr().unwrap().to_string();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 4096];
+            loop {
+                // Drain incoming datagrams so the OS buffer doesn't fill, but
+                // never respond. Stop once the socket is closed.
+                if black_hole.recv_from(&mut buf).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let core = Forward::new(
+            vec![Upstream::new(upstream)],
+            Duration::from_millis(150),
+            LoadBalanceStrategy::RoundRobin,
+        );
+
+        let mut req = Message::new();
+        req.set_id(0x5678);
+        req.add_question(Question::new(
+            "slow.example.com",
+            RecordType::A,
+            RecordClass::IN,
+        ));
+
+        let result = core.forward_query(&req, &core.upstreams[0]).await;
+        assert!(
+            matches!(result, Err(crate::Error::UpstreamTimeout { .. })),
+            "expected UpstreamTimeout, got {:?}",
+            result
+        );
+    }
 
     #[test]
     fn test_select_upstream_random_and_fastest() {
@@ -1218,6 +1345,49 @@ mod tests {
         let core3 = Forward::new(ups, Duration::from_secs(5), LoadBalanceStrategy::Fastest);
         let idx_after = core3.select_upstream(0).unwrap();
         assert_eq!(idx_after, 1);
+    }
+
+    /// Regression test for the non-atomic average-response-time update.
+    ///
+    /// `record_success` previously did a load-modify-store across
+    /// `avg_response_time_us` and `queries`, so concurrent updates lost
+    /// samples. After the `fetch_update` fix, every sample contributes and
+    /// the running average stays within the min/max of the recorded samples.
+    #[test]
+    fn test_record_success_concurrent_updates_keep_avg_in_range() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let health = Arc::new(UpstreamHealth::new());
+        // Each of N threads records a fixed latency `iterations` times.
+        const THREADS: u64 = 8;
+        const ITERATIONS: u64 = 500;
+        const MIN_MS: u64 = 1;
+        const MAX_MS: u64 = 20;
+
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let h = Arc::clone(&health);
+            handles.push(thread::spawn(move || {
+                for _ in 0..ITERATIONS {
+                    h.record_success(Duration::from_millis(MAX_MS));
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let expected = THREADS * ITERATIONS;
+        assert_eq!(health.successes.load(Ordering::Relaxed), expected);
+        // Average of identical samples must equal that sample (within rounding).
+        let avg_us = health.avg_response_time_us.load(Ordering::Relaxed);
+        let max_us = MAX_MS * 1000;
+        let min_us = MIN_MS * 1000;
+        assert!(
+            avg_us >= min_us && avg_us <= max_us,
+            "average {avg_us}us drifted outside [{min_us}, {max_us}] — sample lost?"
+        );
     }
 
     #[test]

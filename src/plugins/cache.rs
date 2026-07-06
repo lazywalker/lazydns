@@ -556,6 +556,15 @@ impl CachePlugin {
         self.cache.read().len()
     }
 
+    /// Whether a key is currently marked as refreshing (in flight in a
+    /// background refresh). Exposed for integration tests to verify the
+    /// completion callback clears the dedup set after a refresh finishes;
+    /// not part of the stable public API.
+    #[doc(hidden)]
+    pub fn is_refreshing(&self, key: &str) -> bool {
+        self.refreshing_keys.contains(key)
+    }
+
     /// Cleanup expired cache entries
     ///
     /// Returns the number of entries removed.

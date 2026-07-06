@@ -2,6 +2,33 @@
 
 This file contains high-level release notes and migration guidance.
 
+## Release v0.3.13 - 2026-07-06
+
+Bug-fix release focused on correctness of the forward and cache paths under load.
+
+**Forwarding**
+
+- fix(forward): multiplex UDP responses by query id so concurrent queries on the shared socket no longer pick up each other's replies (was the root cause of query/response mismatches such as querying one name and getting the answer for another)
+- fix(forward): a reply landing at the same instant as the timeout could be dropped; the wait now uses a `select` so the response wins the race instead of a spurious timeout
+- fix(forward): average response time was updated with a non-atomic read-modify-write, losing samples under concurrency and skewing the `fastest` upstream selection — switched to a CAS update
+- fix(forward): replaced `std::sync::Mutex` with `parking_lot::Mutex` to avoid lock poisoning cascades
+
+**Cache**
+
+- fix(cache): a cached key stayed marked "refreshing" forever after the first successful background refresh, which silently disabled LazyCache prefetch for that key — a completion hook now clears it
+- fix(cache): deep-clone the cached response before serving so the cached object itself is never mutated; also sync the question section to the current request to avoid query/response mismatches on cache hits
+
+**Servers & config**
+
+- fix(tcp/dot): responses larger than 65535 bytes silently truncated the 2-byte length prefix and corrupted the stream — now clamped with a proper error
+- fix(doq): the `local_addr()` fallback would always panic if it ever failed; just prints "unknown" now
+- fix(audit): `parse_size` panicked when the size string ended in a multibyte character (e.g. a stray CJK suffix) — rewritten to slice on char boundaries
+- chore: update bundled filter lists (apple-cn, china-ip, direct-list, github-hosts, proxy-list, reject-list)
+
+**Tests**
+
+- regression tests for the refreshing_keys leak, UDP response/timeout race, concurrent response-time averaging, and `parse_size` multibyte input
+
 ## Release v0.3.10 - 2026-02-03
 
 **Platform & Metrics**
