@@ -150,17 +150,13 @@ impl Plugin for ArbitraryPlugin {
                 }
                 ctx.set_response(Some(msg));
             }
-        } else if !self.map.is_empty()
-            && let Some((_k, rrs)) = self.map.iter().next()
-        {
-            let mut msg = Message::new();
-            msg.set_id(ctx.request().id());
-            msg.set_response(true);
-            for rr in rrs {
-                msg.add_answer(rr.clone());
-            }
-            ctx.set_response(Some(msg));
         }
+        // No question in the request: do nothing. Previously this returned an
+        // arbitrary record from the map (HashMap order is non-deterministic),
+        // leaking internal configuration to any client sending an empty query
+        // (health checks, scanners). A DNS response must echo the query's
+        // question section, which is impossible here, so leave the response
+        // unset and let downstream handle it.
         Ok(())
     }
 }
@@ -337,8 +333,14 @@ mod tests {
         let req = Message::new(); // No question
         let mut ctx = Context::new(req);
         plugin.execute(&mut ctx).await.unwrap();
-        // Should still set response with first entry
-        assert!(ctx.response().is_some());
+        // A request without a question section must not produce a response:
+        // doing so would leak an arbitrary configured record (the previous
+        // behavior returned a HashMap's first entry, which is unpredictable
+        // and unrelated to the query).
+        assert!(
+            ctx.response().is_none(),
+            "no response should be synthesized for a question-less request"
+        );
     }
 
     #[tokio::test]

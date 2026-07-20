@@ -105,6 +105,11 @@ impl IpSetPlugin {
 
     fn make_v4_prefix(ip: &Ipv4Addr, mask: u8) -> String {
         let mask = mask.min(32);
+        // Guard against shift overflow: `!0u32 << 32` is UB/panic on a 32-bit
+        // shift, and a /0 network is "0.0.0.0/0" regardless of the input IP.
+        if mask == 0 {
+            return "0.0.0.0/0".to_string();
+        }
         let ip_u32 = u32::from_be_bytes(ip.octets());
         let net = ip_u32 & (!0u32 << (32 - mask as u32));
         let bytes = net.to_be_bytes();
@@ -355,6 +360,16 @@ mod tests {
             .get_metadata::<Vec<(String, String)>>("ipset_added")
             .unwrap();
         assert_eq!(added.len(), 1);
+    }
+
+    /// Regression: mask=0 previously triggered `!0u32 << 32`, a shift-overflow
+    /// panic in debug / wrong mask in release. A /0 prefix must be "0.0.0.0/0".
+    #[test]
+    fn test_make_v4_prefix_mask_zero() {
+        let ip: Ipv4Addr = "192.0.2.5".parse().unwrap();
+        assert_eq!(IpSetPlugin::make_v4_prefix(&ip, 0), "0.0.0.0/0");
+        assert_eq!(IpSetPlugin::make_v4_prefix(&ip, 24), "192.0.2.0/24");
+        assert_eq!(IpSetPlugin::make_v4_prefix(&ip, 32), "192.0.2.5/32");
     }
 
     #[tokio::test]

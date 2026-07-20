@@ -468,13 +468,27 @@ impl Forward {
 
         let request_data = Self::serialize_message(request)?;
 
-        let resp = client
-            .post(upstream_url)
-            .header("Content-Type", "application/dns-message")
-            .body(request_data)
-            .send()
-            .await
-            .map_err(|e| crate::Error::Other(e.to_string()))?;
+        // Apply the configured query timeout to both the request send and the
+        // response body read. Previously these awaited without any bound, so a
+        // DoH upstream that accepted the connection but never replied would
+        // hang the query forever (the UDP path already enforced self.timeout).
+        let resp = tokio::time::timeout(self.timeout, async {
+            client
+                .post(upstream_url)
+                .header("Content-Type", "application/dns-message")
+                .body(request_data)
+                .send()
+                .await
+        })
+        .await
+        .map_err(|_| {
+            warn!("Timeout sending DoH request to {}", upstream_url);
+            crate::Error::UpstreamTimeout {
+                upstream: upstream_url.to_string(),
+                timeout_ms: self.timeout.as_millis() as u64,
+            }
+        })?
+        .map_err(|e| crate::Error::Other(e.to_string()))?;
 
         if !resp.status().is_success() {
             return Err(crate::Error::Other(format!(
@@ -483,9 +497,15 @@ impl Forward {
             )));
         }
 
-        let bytes = resp
-            .bytes()
+        let bytes = tokio::time::timeout(self.timeout, resp.bytes())
             .await
+            .map_err(|_| {
+                warn!("Timeout reading DoH response body from {}", upstream_url);
+                crate::Error::UpstreamTimeout {
+                    upstream: upstream_url.to_string(),
+                    timeout_ms: self.timeout.as_millis() as u64,
+                }
+            })?
             .map_err(|e| crate::Error::Other(e.to_string()))?;
 
         Self::parse_message(&bytes)

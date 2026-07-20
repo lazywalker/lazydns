@@ -1002,8 +1002,8 @@ impl Plugin for CachePlugin {
                                 ttl_percentage * 100.0,
                                 threshold * 100.0
                             );
-                            // Record lazy refresh attempt
-                            self.lazycache_stats.record_refresh();
+                            // Note: refresh attempt is recorded inside
+                            // spawn_background_refresh; do not double-count here.
                             true
                         } else {
                             false
