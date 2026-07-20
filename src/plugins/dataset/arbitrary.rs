@@ -70,7 +70,7 @@ impl ArbitraryPlugin {
         if parts.len() < 3 {
             return None;
         }
-        let name = parts[0].trim_end_matches('.').to_string();
+        let name = parts[0].trim_end_matches('.').to_lowercase();
         let (typ_idx, rdata_idx) = if parts[1].eq_ignore_ascii_case("IN") && parts.len() >= 4 {
             (2, 3)
         } else {
@@ -139,7 +139,7 @@ impl Plugin for ArbitraryPlugin {
 
     async fn execute(&self, ctx: &mut Context) -> Result<()> {
         if let Some(q) = ctx.request().questions().first() {
-            let key = q.qname().trim_end_matches('.').to_string();
+            let key = q.qname().trim_end_matches('.').to_lowercase();
             if let Some(rrs) = self.map.get(&key) {
                 let mut msg = Message::new();
                 msg.set_id(ctx.request().id());
@@ -356,6 +356,23 @@ mod tests {
         plugin.execute(&mut ctx).await.unwrap();
         // Not found in map
         assert!(ctx.response().is_none());
+    }
+
+    /// Regression: domain matching was case-sensitive. A rule written as
+    /// `Example.com` must match a query for `example.com` (RFC 1035).
+    #[tokio::test]
+    async fn test_arbitrary_case_insensitive_match() {
+        let args = ArbitraryArgs {
+            rules: Some(vec!["Example.COM A 1.2.3.4".to_string()]),
+            files: None,
+        };
+        let plugin = ArbitraryPlugin::new(args).unwrap();
+        let mut req = Message::new();
+        req.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+        let mut ctx = Context::new(req);
+        plugin.execute(&mut ctx).await.unwrap();
+        let resp = ctx.response().expect("case-insensitive match should hit");
+        assert_eq!(resp.answer_count(), 1);
     }
 
     #[test]

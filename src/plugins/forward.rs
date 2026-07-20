@@ -898,16 +898,23 @@ impl ForwardPlugin {
         }
     }
 
-    /// Execute concurrent queries to all upstreams, return first success
+    /// Execute concurrent queries to all upstreams, return first success.
+    ///
+    /// Tasks are awaited in completion order (not spawn order) via a
+    /// `JoinSet`, so the first upstream to answer wins regardless of which
+    /// was spawned first. Remaining tasks are aborted once a success arrives,
+    /// so they no longer keep hitting upstreams or skew health stats.
     async fn execute_concurrent(&self, request: Arc<Message>) -> Result<Message> {
-        let mut tasks = Vec::new();
+        use tokio::task::JoinSet;
+
+        let mut set: JoinSet<Result<Message>> = JoinSet::new();
 
         for idx in 0..self.core.upstreams.len() {
             // Use Arc clones for lightweight sharing instead of deep cloning the message
             let req = Arc::clone(&request);
             let core = self.core.clone();
 
-            let task = tokio::spawn(async move {
+            set.spawn(async move {
                 let upstream = &core.upstreams[idx];
                 trace!("Concurrent query to: {}", upstream.addr);
                 let start = std::time::Instant::now();
@@ -949,21 +956,38 @@ impl ForwardPlugin {
                     }
                 }
             });
-
-            tasks.push(task);
         }
 
-        // Wait for first success
-        for task in tasks {
-            if let Ok(Ok(response)) = task.await {
-                trace!(answers = ?response.answers(), "Got fastest response in concurrent mode");
-                return Ok(response);
+        // Wait in completion order: return the first success and abort the rest.
+        // Previously this awaited tasks in spawn order, so a slow-failing
+        // upstream[0] would block a fast upstream[1] from being used, and any
+        // tasks left over kept running as orphans after the early return.
+        let mut last_error: Option<crate::Error> = None;
+        while let Some(res) = set.join_next().await {
+            match res {
+                Ok(Ok(response)) => {
+                    trace!(
+                        answers = ?response.answers(),
+                        "Got fastest response in concurrent mode"
+                    );
+                    set.abort_all();
+                    return Ok(response);
+                }
+                Ok(Err(e)) => {
+                    last_error = Some(e);
+                }
+                Err(join_err) => {
+                    // Task panicked; record a synthetic error and keep waiting
+                    // for the other upstreams.
+                    last_error = Some(crate::Error::Other(format!(
+                        "concurrent query task failed: {join_err}"
+                    )));
+                }
             }
         }
 
-        Err(crate::Error::Other(
-            "All concurrent queries failed".to_string(),
-        ))
+        Err(last_error
+            .unwrap_or_else(|| crate::Error::Other("All concurrent queries failed".to_string())))
     }
 
     /// Execute sequential failover through upstreams
