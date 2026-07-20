@@ -339,10 +339,6 @@ pub struct CachePlugin {
     negative_cache: bool,
     /// TTL for negative cache entries (in seconds)
     negative_ttl: u32,
-    /// Enable cache prefetch (refresh entries before they expire)
-    enable_prefetch: bool,
-    /// Prefetch threshold (refresh when TTL drops below this percentage)
-    prefetch_threshold: f32,
     /// Enable lazycache optimization (refresh hot entries before expiry)
     enable_lazycache: bool,
     /// Lazycache threshold - refresh when TTL drops below this percentage (0.0-1.0)
@@ -351,8 +347,6 @@ pub struct CachePlugin {
     cache_ttl: Option<u32>,
     /// LazyCache-specific statistics
     lazycache_stats: Arc<LazyCacheStats>,
-    /// Mutable threshold for runtime adjustment
-    lazycache_threshold_dynamic: Arc<tokio::sync::RwLock<f32>>,
     /// Set of keys currently being refreshed (to prevent duplicate refreshes)
     refreshing_keys: Arc<DashSet<String>>,
     /// Plugin tag from YAML configuration
@@ -389,13 +383,10 @@ impl CachePlugin {
             stats: Arc::new(CacheStats::new()),
             negative_cache: false,
             negative_ttl: 300, // 5 minutes default
-            enable_prefetch: false,
-            prefetch_threshold: 0.1, // Refresh at 10% remaining TTL
             enable_lazycache: false,
             lazycache_threshold: 0.05, // Refresh at 5% remaining TTL (hot entries)
             cache_ttl: None,
             lazycache_stats: Arc::new(LazyCacheStats::new()),
-            lazycache_threshold_dynamic: Arc::new(tokio::sync::RwLock::new(0.05)),
             refreshing_keys: Arc::new(DashSet::new()),
             tag: None,
             refresh_coordinator: Arc::new(Mutex::new(None)),
@@ -413,17 +404,6 @@ impl CachePlugin {
     pub fn with_negative_cache(mut self, ttl: u32) -> Self {
         self.negative_cache = true;
         self.negative_ttl = ttl;
-        self
-    }
-
-    /// Enable cache prefetch
-    ///
-    /// # Arguments
-    ///
-    /// * `threshold` - Refresh when remaining TTL drops below this percentage (0.0-1.0)
-    pub fn with_prefetch(mut self, threshold: f32) -> Self {
-        self.enable_prefetch = true;
-        self.prefetch_threshold = threshold.clamp(0.0, 1.0);
         self
     }
 
@@ -528,30 +508,6 @@ impl CachePlugin {
         self.lazycache_threshold
     }
 
-    /// Set LazyCache threshold dynamically
-    ///
-    /// # Arguments
-    ///
-    /// * `threshold` - New threshold value (0.0-1.0)
-    pub fn set_lazycache_threshold(&self, threshold: f32) {
-        let clamped = threshold.clamp(0.0, 1.0);
-        debug!("Updating LazyCache threshold to {:.2}%", clamped * 100.0);
-        // Note: This is a sync wrapper, the actual dynamic update happens in tokio
-        // For now, we update the static field via the dynamic RwLock
-    }
-
-    /// Update LazyCache threshold asynchronously
-    pub async fn set_lazycache_threshold_async(&self, threshold: f32) {
-        let clamped = threshold.clamp(0.0, 1.0);
-        let mut dynamic_threshold = self.lazycache_threshold_dynamic.write().await;
-        *dynamic_threshold = clamped;
-        debug!("LazyCache threshold updated to {:.2}%", clamped * 100.0);
-    }
-
-    /// Get current LazyCache threshold (may be dynamically adjusted)
-    pub async fn get_lazycache_threshold_async(&self) -> f32 {
-        *self.lazycache_threshold_dynamic.read().await
-    }
     pub fn size(&self) -> usize {
         self.cache.read().len()
     }
@@ -771,6 +727,104 @@ impl CachePlugin {
             record.set_ttl(remaining_ttl);
         }
     }
+
+    /// Serve a cached entry to the client.
+    ///
+    /// Deep-clones the cached response (so the cached object itself is never
+    /// mutated), refreshes its TTL to `ttl`, restores the request's id and
+    /// syncs the question section so the response always matches the client's
+    /// query. Also marks `response_from_cache` so Phase 2 does not re-store it.
+    fn serve_cached_response(context: &mut Context, entry: &CacheEntry, ttl: u32) {
+        let mut response = (*entry.response).clone();
+        Self::update_ttls(&mut response, ttl);
+        response.set_id(context.request().id());
+        // Sync request QUESTION SECTION to avoid query/response mismatch
+        let request_questions = context.request().questions().to_vec();
+        *response.questions_mut() = request_questions;
+        context.set_response_arc(Some(Arc::new(response)));
+
+        // Mark that response came from cache to prevent Phase 2 re-execution
+        context.set_metadata("response_from_cache", true);
+    }
+
+    /// Trigger a background refresh of `key`, de-duplicated via `refreshing_keys`.
+    ///
+    /// `label` is a short tag (e.g. "stale-serving TTL", "LazyCache") used in
+    /// log messages to tell the two call sites apart. This factors out logic
+    /// that was previously duplicated verbatim by the stale-serving path and
+    /// the LazyCache threshold path.
+    fn spawn_background_refresh(&self, context: &Context, key: &str, label: &'static str) {
+        if !self.refreshing_keys.insert(key.to_string()) {
+            debug!(
+                "{}: {} already being refreshed, skipping duplicate background refresh",
+                label, key
+            );
+            return;
+        }
+        self.lazycache_stats.record_refresh();
+
+        // Resolve the handler/entry to run the refresh against.
+        if let (Some(handler), Some(entry_name)) = (
+            context.get_metadata::<Arc<PluginHandler>>("lazy_refresh_handler"),
+            context.get_metadata::<String>("lazy_refresh_entry"),
+        ) {
+            let background_handler = Arc::new(PluginHandler {
+                registry: Arc::clone(&handler.registry),
+                entry: entry_name.clone(),
+            });
+
+            let refreshing_keys_clone = Arc::clone(&self.refreshing_keys);
+            let mut request_clone = context.request().clone();
+            let key_clone = key.to_string();
+            let coordinator = Arc::clone(&self.refresh_coordinator);
+
+            // Mark as background refresh.
+            request_clone.set_id(0xFFFF);
+
+            let task = RefreshTask {
+                key: key_clone.clone(),
+                message: request_clone,
+                handler: background_handler,
+                entry_name: entry_name.clone(),
+                created_at: Instant::now(),
+            };
+
+            tokio::spawn(async move {
+                if let Some(coord) = coordinator.lock().await.as_ref() {
+                    match coord.enqueue(task).await {
+                        Ok(_) => {
+                            debug!("Background {} refresh enqueued for {}", label, key_clone);
+                        }
+                        Err(e) => {
+                            debug!(
+                                "Failed to enqueue {} refresh for {}: {}",
+                                label, key_clone, e
+                            );
+                            // Remove from refreshing set if enqueue failed.
+                            refreshing_keys_clone.remove(&key_clone);
+                        }
+                    }
+                } else {
+                    debug!("Refresh coordinator not initialized");
+                    refreshing_keys_clone.remove(&key_clone);
+                }
+            });
+        } else {
+            debug!(
+                "{}: handler metadata missing, falling back to invalidate stale entry",
+                label
+            );
+            let cache_clone = Arc::clone(&self.cache);
+            let refreshing_keys_clone = Arc::clone(&self.refreshing_keys);
+            let key_clone = key.to_string();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                debug!("Fallback: invalidating cache entry for {}", key_clone);
+                cache_clone.write().pop(&key_clone);
+                refreshing_keys_clone.remove(&key_clone);
+            });
+        }
+    }
 }
 
 impl fmt::Debug for CachePlugin {
@@ -892,95 +946,10 @@ impl Plugin for CachePlugin {
                         );
 
                         // Return stale response with a small TTL while refreshing in background
-                        // CRITICAL: Must deep clone the response to avoid modifying cached object
-                        // Arc::make_mut only clones if refcount > 1, so we must explicitly clone
-                        let mut response = (*entry.response).clone();
-                        Self::update_ttls(&mut response, STALE_RESPONSE_TTL_SECS);
-                        response.set_id(context.request().id());
-                        // Sync request QUESTION SECTION to avoid query/response mismatch
-                        let request_questions = context.request().questions().to_vec();
-                        *response.questions_mut() = request_questions;
-                        context.set_response_arc(Some(Arc::new(response)));
-
-                        // Mark that response came from cache to prevent Phase 2 re-execution
-                        context.set_metadata("response_from_cache", true);
+                        Self::serve_cached_response(context, &entry, STALE_RESPONSE_TTL_SECS);
 
                         // Trigger background refresh (de-duplicated)
-                        if self.refreshing_keys.insert(key.clone()) {
-                            self.lazycache_stats.record_refresh();
-
-                            // Check if we have required metadata and coordinator
-                            if let (Some(handler), Some(entry_name)) = (
-                                context.get_metadata::<Arc<PluginHandler>>("lazy_refresh_handler"),
-                                context.get_metadata::<String>("lazy_refresh_entry"),
-                            ) {
-                                let background_handler = Arc::new(PluginHandler {
-                                    registry: Arc::clone(&handler.registry),
-                                    entry: entry_name.clone(),
-                                });
-
-                                let refreshing_keys_clone = Arc::clone(&self.refreshing_keys);
-                                let mut request_clone = context.request().clone();
-                                let key_clone = key.clone();
-                                let coordinator = Arc::clone(&self.refresh_coordinator);
-
-                                // Mark as background refresh
-                                request_clone.set_id(0xFFFF);
-
-                                // Enqueue refresh task instead of spawning thread
-                                let task = RefreshTask {
-                                    key: key_clone.clone(), // Clone for the task struct
-                                    message: request_clone,
-                                    handler: background_handler,
-                                    entry_name: entry_name.clone(),
-                                    created_at: Instant::now(),
-                                };
-
-                                // Use key_clone directly in async block (already cloned above)
-                                tokio::spawn(async move {
-                                    // Lock the Mutex to access the coordinator inside
-                                    if let Some(coord) = coordinator.lock().await.as_ref() {
-                                        match coord.enqueue(task).await {
-                                            Ok(_) => {
-                                                debug!(
-                                                    "Background stale-serving TTL refresh enqueued for {}",
-                                                    key_clone
-                                                );
-                                            }
-                                            Err(e) => {
-                                                debug!(
-                                                    "Failed to enqueue stale-serving TTL refresh for {}: {}",
-                                                    key_clone, e
-                                                );
-                                                // Remove from refreshing set if enqueue failed
-                                                refreshing_keys_clone.remove(&key_clone);
-                                            }
-                                        }
-                                    } else {
-                                        debug!("Refresh coordinator not initialized");
-                                        refreshing_keys_clone.remove(&key_clone);
-                                    }
-                                });
-                            } else {
-                                debug!(
-                                    "Stale-serving TTL: handler metadata missing, falling back to invalidate stale entry"
-                                );
-                                let cache_clone = Arc::clone(&self.cache);
-                                let refreshing_keys_clone = Arc::clone(&self.refreshing_keys);
-                                let key_clone = key.clone();
-                                tokio::spawn(async move {
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(10))
-                                        .await;
-                                    cache_clone.write().pop(&key_clone);
-                                    refreshing_keys_clone.remove(&key_clone);
-                                });
-                            }
-                        } else {
-                            debug!(
-                                "Stale-serving TTL: {} already being refreshed, skip duplicate background refresh",
-                                key
-                            );
-                        }
+                        self.spawn_background_refresh(context, &key, "stale-serving TTL");
 
                         // Stop the chain and return stale response
                         context.set_metadata(RETURN_FLAG, true);
@@ -1050,103 +1019,10 @@ impl Plugin for CachePlugin {
 
                 if should_lazy_refresh {
                     // LazyCache: return cached response immediately, spawn background refresh
-                    // CRITICAL: Must deep clone the response to avoid modifying cached object
-                    let mut response = (*entry.response).clone();
-                    Self::update_ttls(&mut response, remaining_ttl);
-                    response.set_id(context.request().id());
-                    // Sync request QUESTION SECTION to avoid query/response mismatch
-                    let request_questions = context.request().questions().to_vec();
-                    *response.questions_mut() = request_questions;
-                    context.set_response_arc(Some(Arc::new(response)));
+                    Self::serve_cached_response(context, &entry, remaining_ttl);
 
-                    // Mark that response came from cache to prevent Phase 2 re-execution
-                    context.set_metadata("response_from_cache", true);
-
-                    // Check if already refreshing this key to prevent duplicate refreshes
-                    if self.refreshing_keys.insert(key.clone()) {
-                        debug!(
-                            "LazyCache: returning cached response immediately, triggering background refresh for {}",
-                            key
-                        );
-
-                        // Record the refresh attempt
-                        self.lazycache_stats.record_refresh();
-
-                        // Get lazy refresh handler from metadata
-                        if let (Some(handler), Some(entry_name)) = (
-                            context.get_metadata::<Arc<PluginHandler>>("lazy_refresh_handler"),
-                            context.get_metadata::<String>("lazy_refresh_entry"),
-                        ) {
-                            // Create a new handler instance for background refresh
-                            let background_handler = Arc::new(PluginHandler {
-                                registry: Arc::clone(&handler.registry),
-                                entry: entry_name.clone(),
-                            });
-
-                            let refreshing_keys_clone = Arc::clone(&self.refreshing_keys);
-                            let mut request_clone = context.request().clone();
-                            let key_clone = key.clone();
-                            let coordinator = Arc::clone(&self.refresh_coordinator);
-
-                            // Mark this as a background refresh by setting a special ID
-                            request_clone.set_id(0xFFFF);
-
-                            // Enqueue refresh task instead of spawning thread
-                            let task = RefreshTask {
-                                key: key_clone.clone(),
-                                message: request_clone,
-                                handler: background_handler,
-                                entry_name: entry_name.clone(),
-                                created_at: Instant::now(),
-                            };
-
-                            tokio::spawn(async move {
-                                // Lock the Mutex to access the coordinator inside
-                                if let Some(coord) = coordinator.lock().await.as_ref() {
-                                    match coord.enqueue(task).await {
-                                        Ok(_) => {
-                                            debug!(
-                                                "Background lazy refresh enqueued for {}",
-                                                key_clone
-                                            );
-                                        }
-                                        Err(e) => {
-                                            debug!(
-                                                "Failed to enqueue lazy refresh for {}: {}",
-                                                key_clone, e
-                                            );
-                                            // Remove from refreshing set if enqueue failed
-                                            refreshing_keys_clone.remove(&key_clone);
-                                        }
-                                    }
-                                } else {
-                                    debug!("Refresh coordinator not initialized");
-                                    refreshing_keys_clone.remove(&key_clone);
-                                }
-                            });
-                        } else {
-                            debug!(
-                                "LazyCache: lazy_refresh_handler not available in metadata or coordinator not initialized, falling back to cache invalidation"
-                            );
-
-                            // Fallback to old behavior: invalidate cache entry
-                            let cache_clone = Arc::clone(&self.cache);
-                            let refreshing_keys_clone = Arc::clone(&self.refreshing_keys);
-                            let key_clone = key.clone();
-
-                            tokio::spawn(async move {
-                                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-                                debug!("Fallback: invalidating cache entry for {}", key_clone);
-                                cache_clone.write().pop(&key_clone);
-                                refreshing_keys_clone.remove(&key_clone);
-                            });
-                        }
-                    } else {
-                        debug!(
-                            "LazyCache: {} already being refreshed by another request, skipping duplicate refresh",
-                            key
-                        );
-                    }
+                    // Trigger background refresh (de-duplicated)
+                    self.spawn_background_refresh(context, &key, "LazyCache");
 
                     // Stop chain - client gets cached response immediately
                     context.set_metadata(RETURN_FLAG, true);
@@ -1164,18 +1040,8 @@ impl Plugin for CachePlugin {
                         // Don't return cached response, let downstream execute to get fresh data
                         return Ok(());
                     } else {
-                        // Normal cache hit: deep clone to avoid modifying cached object
-                        // CRITICAL: Don't use Arc::make_mut - it only clones if refcount > 1
-                        let mut response = (*entry.response).clone();
-                        Self::update_ttls(&mut response, remaining_ttl);
-                        response.set_id(context.request().id());
-                        // Sync request QUESTION SECTION to avoid query/response mismatch
-                        let request_questions = context.request().questions().to_vec();
-                        *response.questions_mut() = request_questions;
-                        context.set_response_arc(Some(Arc::new(response)));
-
-                        // Mark that response came from cache to prevent Phase 2 re-execution
-                        context.set_metadata("response_from_cache", true);
+                        // Normal cache hit
+                        Self::serve_cached_response(context, &entry, remaining_ttl);
 
                         trace!("Normal cache hit: returning immediately and stopping chain");
                         // Stop the plugin chain to prevent downstream plugins (like Forward)
@@ -1296,23 +1162,6 @@ impl Plugin for CachePlugin {
                 None => 300,
             };
             cache = cache.with_negative_cache(negative_ttl);
-        }
-
-        // Parse prefetch parameter (default: false)
-        if let Some(Value::Bool(true)) = args.get("enable_prefetch") {
-            let threshold = match args.get("prefetch_threshold") {
-                Some(Value::Number(n)) => n
-                    .as_f64()
-                    .ok_or_else(|| Error::Config("Invalid prefetch_threshold value".to_string()))?
-                    as f32,
-                Some(_) => {
-                    return Err(Error::Config(
-                        "prefetch_threshold must be a number".to_string(),
-                    ));
-                }
-                None => 0.1,
-            };
-            cache = cache.with_prefetch(threshold);
         }
 
         // Parse cache_ttl (stale-serving) parameter (default: disabled)
@@ -1772,8 +1621,7 @@ plugins:
 
     #[tokio::test]
     async fn test_lazycache_refresh_threshold_triggers() {
-        let cache = CachePlugin::new(100);
-        cache.set_lazycache_threshold(0.1); // 10% threshold
+        let cache = CachePlugin::new(100).with_lazycache(0.1); // 10% threshold
 
         let response = create_test_response();
         let mut ctx = crate::plugin::Context::new(create_test_message());
@@ -1818,8 +1666,7 @@ plugins:
 
     #[tokio::test]
     async fn test_lazycache_continues_pipeline_on_refresh() {
-        let cache = CachePlugin::new(100);
-        cache.set_lazycache_threshold(0.05); // 5% threshold
+        let cache = CachePlugin::new(100).with_lazycache(0.05); // 5% threshold
 
         let response = create_test_response();
         let mut ctx = crate::plugin::Context::new(create_test_message());

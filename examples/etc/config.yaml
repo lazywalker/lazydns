@@ -254,12 +254,6 @@ plugins:
       # and refresh in background. Set to desired cache duration (e.g., 600 for 10 minutes)
       cache_ttl: 600
 
-      # TODO: Prefetch extension can be enabled here in future
-      # Optional: Enable prefetch for additional performance
-      # Prefetch is more aggressive than lazycache and refreshes at higher threshold
-      # enable_prefetch: true
-      # prefetch_threshold: 0.1  # Refresh at 10% remaining TTL
-
   # ========================================================================
   # Alternative Cache Configurations (Commented Out Examples)
   # ========================================================================

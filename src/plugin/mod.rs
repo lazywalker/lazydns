@@ -9,7 +9,6 @@
 //! The plugin system consists of:
 //! - **Plugin trait**: The core interface all plugins must implement
 //! - **Context**: Execution context passed between plugins
-//! - **Executor**: Manages plugin execution and ordering
 //! - **Registry**: Manages plugin registration and lookup
 //!
 //! # Example
@@ -38,7 +37,6 @@
 pub mod builder;
 pub mod condition;
 pub mod context;
-pub mod executor;
 pub mod factory;
 pub mod registry;
 pub mod traits;
@@ -49,7 +47,6 @@ pub const RETURN_FLAG: &str = "__return_flag";
 // Re-export commonly used types
 pub use builder::PluginBuilder;
 pub use context::Context;
-pub use executor::Executor;
 pub use registry::Registry;
 pub use traits::{BackgroundTask, ExecPlugin, Plugin};
 
@@ -219,18 +216,6 @@ mod tests {
         let request = Message::new();
         let _ctx = Context::new(request);
         let _registry = Registry::new();
-    }
-
-    #[tokio::test]
-    async fn test_executor_creation() {
-        // Verify Executor is accessible and can be created
-        let executor = Executor::new();
-        let request = Message::new();
-        let mut ctx = Context::new(request);
-
-        // Should execute with empty executor
-        let result = executor.execute(&mut ctx).await;
-        assert!(result.is_ok());
     }
 
     #[test]

@@ -54,7 +54,6 @@ impl ExecPlugin for ReturnPlugin {
 mod tests {
     use super::*;
     use crate::dns::Message;
-    use crate::plugin::Executor;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -77,15 +76,22 @@ mod tests {
             }
         }
 
-        let mut executor = Executor::new();
-        executor.add_plugin(Arc::new(ReturnPlugin::new()));
+        // Mimic the sequence executor: run plugins in order, stop early when
+        // RETURN_FLAG is set (what SequencePlugin does in production).
+        let return_plugin = ReturnPlugin::new();
         let counter = Arc::new(AtomicUsize::new(0));
-        executor.add_plugin(Arc::new(Counter {
+        let counter_plugin = Counter {
             counter: counter.clone(),
-        }));
+        };
+        let plugins: Vec<Arc<dyn Plugin>> = vec![Arc::new(return_plugin), Arc::new(counter_plugin)];
 
         let mut ctx = Context::new(Message::new());
-        executor.execute(&mut ctx).await.unwrap();
+        for plugin in &plugins {
+            plugin.execute(&mut ctx).await.unwrap();
+            if ctx.get_metadata::<bool>(RETURN_FLAG) == Some(&true) {
+                break;
+            }
+        }
 
         assert_eq!(counter.load(Ordering::SeqCst), 0);
         assert_eq!(ctx.get_metadata::<bool>(RETURN_FLAG), Some(&true));
