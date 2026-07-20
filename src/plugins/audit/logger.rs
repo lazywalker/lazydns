@@ -30,7 +30,7 @@ pub struct AuditLogger {
     /// Whether query log file writing is enabled
     query_log_file_enabled: AtomicBool,
 
-    /// Whether security log file writing is enabled  
+    /// Whether security log file writing is enabled
     security_log_file_enabled: AtomicBool,
 
     /// Enabled security event types (empty = all)
@@ -38,6 +38,15 @@ pub struct AuditLogger {
 
     /// Sampling threshold (scaled to u64 range)
     sampling_threshold: AtomicU64,
+
+    /// Background writer task handles, so shutdown can abort them. Without
+    /// this the spawned writers blocked forever on subscriber.recv() after
+    /// shutdown, leaking as orphan tasks.
+    writer_tasks: parking_lot::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+
+    /// Guards against re-init spawning duplicate writers that would each
+    /// consume the same events and double-write the log.
+    writers_spawned: AtomicBool,
 
     /// Statistics
     queries_logged: AtomicU64,
@@ -54,6 +63,8 @@ impl AuditLogger {
             security_log_file_enabled: AtomicBool::new(false),
             enabled_events: RwLock::new(HashSet::new()),
             sampling_threshold: AtomicU64::new(u64::MAX), // 100% by default
+            writer_tasks: parking_lot::Mutex::new(Vec::new()),
+            writers_spawned: AtomicBool::new(false),
             queries_logged: AtomicU64::new(0),
             queries_sampled_out: AtomicU64::new(0),
             security_events_logged: AtomicU64::new(0),
@@ -69,6 +80,14 @@ impl AuditLogger {
 
         info!("Initializing audit logger");
 
+        // If previously initialized (reload), stop the old writers first so we
+        // don't end up with duplicate writers consuming the same events and
+        // double-writing the log files.
+        if self.writers_spawned.swap(true, Ordering::AcqRel) {
+            warn!("Audit logger already initialized; stopping previous writers before re-init");
+            self.stop_writers();
+        }
+
         // Set up query logging
         if let Some(ref query_config) = config.query_log {
             self.init_query_log(&config, query_config).await?;
@@ -81,6 +100,30 @@ impl AuditLogger {
 
         *self.config.write().await = Some(config);
         Ok(())
+    }
+
+    /// Spawn a background writer task, tracking its handle so `shutdown` /
+    /// re-init can abort it. Use this instead of bare `tokio::spawn` for all
+    /// audit writer tasks.
+    fn spawn_writer<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let handle = tokio::spawn(future);
+        self.writer_tasks.lock().push(handle);
+    }
+
+    /// Abort all tracked writer tasks and clear the handles. Used by shutdown
+    /// and re-init. Does not touch the shared event bus (other subscribers
+    /// such as the WebUI keep running).
+    fn stop_writers(&self) {
+        let mut tasks = self.writer_tasks.lock();
+        for handle in tasks.drain(..) {
+            handle.abort();
+        }
+        self.query_log_file_enabled.store(false, Ordering::Relaxed);
+        self.security_log_file_enabled
+            .store(false, Ordering::Relaxed);
     }
 
     /// Initialize query logging
@@ -143,7 +186,7 @@ impl AuditLogger {
             let subscriber = bus.subscribe_queries();
             debug!("Query log writer subscribed to event bus");
 
-            tokio::spawn(async move {
+            self.spawn_writer(async move {
                 debug!("Query log writer task started");
                 query_log_writer(
                     subscriber,
@@ -231,7 +274,7 @@ impl AuditLogger {
             let subscriber = bus.subscribe_security();
             debug!("Security log writer subscribed to event bus");
 
-            tokio::spawn(async move {
+            self.spawn_writer(async move {
                 security_log_writer(subscriber, path, buffer_size, max_file_size, max_files).await;
             });
         } else {
@@ -286,7 +329,10 @@ impl AuditLogger {
     /// Log a DNS query
     ///
     /// Publishes to the event bus which distributes to all subscribers
-    /// (WebUI SSE, file writers, metrics collectors, etc.)
+    /// (WebUI SSE, file writers, metrics collectors, etc.). The file-writer
+    /// subscribers are tracked via `spawn_writer` and aborted on shutdown /
+    /// re-init, so events published after shutdown only reach still-live
+    /// subscribers (e.g. WebUI) and are not written to disk.
     pub fn log_query(&self, entry: QueryLogEntry) {
         // Check sampling first (fast path)
         if !self.should_sample() {
@@ -368,10 +414,12 @@ impl AuditLogger {
 
     /// Shutdown the audit logger
     pub async fn shutdown(&self) {
+        // Abort the background writer tasks so they don't keep blocking on
+        // subscriber.recv() (and don't keep writing) after shutdown.
+        self.stop_writers();
+        self.writers_spawned.store(false, Ordering::Release);
+
         *self.config.write().await = None;
-        self.query_log_file_enabled.store(false, Ordering::Relaxed);
-        self.security_log_file_enabled
-            .store(false, Ordering::Relaxed);
 
         info!(
             queries = self.queries_logged.load(Ordering::Relaxed),
@@ -485,8 +533,15 @@ fn flush_query_buffer(
             f
         }
         Err(e) => {
-            error!(path = %path, error = %e, "Failed to open query log file");
-            buffer.clear();
+            // Transient I/O failure: keep the buffer so the next flush retries,
+            // but cap growth to avoid unbounded memory if the file is
+            // permanently unwritable (drop oldest beyond 4x the buffer size).
+            error!(path = %path, error = %e, "Failed to open query log file; retaining buffer for retry");
+            let cap = buffer.len().max(1024).saturating_mul(4);
+            if buffer.len() > cap {
+                let drop_n = buffer.len() - cap;
+                buffer.drain(..drop_n);
+            }
             return;
         }
     };
@@ -709,9 +764,15 @@ fn flush_security_buffer(
     {
         Ok(f) => f,
         Err(e) => {
-            error!(path = %path, error = %e, "Failed to open security log file");
-            buffer.clear();
-            *accumulated_size = 0;
+            // Transient I/O failure: keep the buffer for the next retry, but
+            // cap growth to avoid unbounded memory if the file is permanently
+            // unwritable.
+            error!(path = %path, error = %e, "Failed to open security log file; retaining buffer for retry");
+            let cap = buffer.len().max(1024).saturating_mul(4);
+            if buffer.len() > cap {
+                let drop_n = buffer.len() - cap;
+                buffer.drain(..drop_n);
+            }
             return;
         }
     };
