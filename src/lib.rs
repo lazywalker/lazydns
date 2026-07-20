@@ -14,7 +14,7 @@
 //! - `error`: Error types and handling
 //!
 
-// #![warn(clippy::all)]
+#![warn(clippy::all)]
 
 // Re-export proc_macro derives for plugin registration
 pub use lazydns_macros::{RegisterExecPlugin, RegisterPlugin, ShutdownPlugin};
@@ -153,10 +153,6 @@ pub mod error {
         /// Other error (legacy, try to use specific variants)
         #[error("Error: {0}")]
         Other(String),
-
-        /// Wrapped anyhow error for compatibility
-        #[error(transparent)]
-        Anyhow(#[from] anyhow::Error),
     }
 
     impl Error {
@@ -211,40 +207,10 @@ pub mod error {
                 reason: reason.into(),
             }
         }
-
-        /// Check if this error is recoverable (can be retried)
-        pub fn is_recoverable(&self) -> bool {
-            matches!(
-                self,
-                Error::UpstreamTimeout { .. } | Error::Connection { .. }
-            )
-        }
-
-        /// Check if this error is a configuration error
-        pub fn is_config_error(&self) -> bool {
-            matches!(
-                self,
-                Error::Config(_)
-                    | Error::MissingConfigField { .. }
-                    | Error::InvalidConfigValue { .. }
-            )
-        }
     }
 
     /// Result type for lazydns operations
     pub type Result<T> = std::result::Result<T, Error>;
-
-    /// Extension trait for Option to convert to Error
-    pub trait OptionExt<T> {
-        /// Convert None to an Error with a custom message
-        fn ok_or_missing(self, field: &str, context: &str) -> Result<T>;
-    }
-
-    impl<T> OptionExt<T> for Option<T> {
-        fn ok_or_missing(self, field: &str, context: &str) -> Result<T> {
-            self.ok_or_else(|| Error::missing_config_field(field, context))
-        }
-    }
 }
 
 // Re-export commonly used types
@@ -300,55 +266,9 @@ mod tests {
     }
 
     #[test]
-    fn test_error_helper_methods() {
-        // Test is_recoverable
-        let recoverable = Error::UpstreamTimeout {
-            upstream: "test".to_string(),
-            timeout_ms: 100,
-        };
-        assert!(recoverable.is_recoverable());
-
-        let also_recoverable = Error::connection("test", "reset");
-        assert!(also_recoverable.is_recoverable());
-
-        let not_recoverable = Error::Config("bad config".to_string());
-        assert!(!not_recoverable.is_recoverable());
-
-        // Test is_config_error
-        let config_err = Error::missing_config_field("port", "server");
-        assert!(config_err.is_config_error());
-
-        let also_config_err = Error::invalid_config_value("port", "abc", "invalid");
-        assert!(also_config_err.is_config_error());
-
-        let not_config_err = Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "file not found",
-        ));
-        assert!(!not_config_err.is_config_error());
-    }
-
-    #[test]
     fn test_error_from_io() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err: Error = io_err.into();
         assert!(matches!(err, Error::Io(_)));
-    }
-
-    #[test]
-    fn test_option_ext() {
-        use error::OptionExt;
-
-        let some_val: Option<i32> = Some(42);
-        let result = some_val.ok_or_missing("value", "test");
-        assert!(result.is_ok());
-
-        let none_val: Option<i32> = None;
-        let result = none_val.ok_or_missing("value", "test");
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            Error::MissingConfigField { .. }
-        ));
     }
 }

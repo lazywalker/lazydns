@@ -51,8 +51,10 @@ impl RedirectPlugin {
         let qname_lower = qname.to_lowercase();
 
         if let Some(suffix) = from_lower.strip_prefix("*.") {
-            // Wildcard match
-            qname_lower.ends_with(suffix) || qname_lower == suffix
+            // Wildcard match: the query must equal the suffix (e.g. "old.com")
+            // or be a proper subdomain of it ("www.old.com"). Requiring a dot
+            // boundary prevents "evilexample.com" from matching "*.example.com".
+            qname_lower == suffix || qname_lower.ends_with(&format!(".{suffix}"))
         } else {
             // Exact match
             qname_lower == from_lower
@@ -228,6 +230,34 @@ mod tests {
         assert_eq!(
             request.questions().first().unwrap().qname(),
             "different.com"
+        );
+    }
+
+    /// Regression: a wildcard `*.old.com` must not match a name that merely
+    /// ends with the suffix without a label boundary. Previously
+    /// `evilold.com` matched `*.old.com` via `ends_with("old.com")`.
+    #[tokio::test]
+    async fn test_redirect_wildcard_requires_label_boundary() {
+        let plugin = RedirectPlugin::new("*.old.com", "*.new.com");
+
+        // Proper subdomain matches.
+        let mut request = Message::new();
+        request.add_question(Question::new("www.old.com", RecordType::A, RecordClass::IN));
+        let mut ctx = Context::new(request);
+        plugin.execute(&mut ctx).await.unwrap();
+        assert_eq!(
+            ctx.request().questions().first().unwrap().qname(),
+            "www.new.com"
+        );
+
+        // Suffix collision without a dot boundary must NOT match.
+        let mut request = Message::new();
+        request.add_question(Question::new("evilold.com", RecordType::A, RecordClass::IN));
+        let mut ctx = Context::new(request);
+        plugin.execute(&mut ctx).await.unwrap();
+        assert_eq!(
+            ctx.request().questions().first().unwrap().qname(),
+            "evilold.com"
         );
     }
 

@@ -468,13 +468,27 @@ impl Forward {
 
         let request_data = Self::serialize_message(request)?;
 
-        let resp = client
-            .post(upstream_url)
-            .header("Content-Type", "application/dns-message")
-            .body(request_data)
-            .send()
-            .await
-            .map_err(|e| crate::Error::Other(e.to_string()))?;
+        // Apply the configured query timeout to both the request send and the
+        // response body read. Previously these awaited without any bound, so a
+        // DoH upstream that accepted the connection but never replied would
+        // hang the query forever (the UDP path already enforced self.timeout).
+        let resp = tokio::time::timeout(self.timeout, async {
+            client
+                .post(upstream_url)
+                .header("Content-Type", "application/dns-message")
+                .body(request_data)
+                .send()
+                .await
+        })
+        .await
+        .map_err(|_| {
+            warn!("Timeout sending DoH request to {}", upstream_url);
+            crate::Error::UpstreamTimeout {
+                upstream: upstream_url.to_string(),
+                timeout_ms: self.timeout.as_millis() as u64,
+            }
+        })?
+        .map_err(|e| crate::Error::Other(e.to_string()))?;
 
         if !resp.status().is_success() {
             return Err(crate::Error::Other(format!(
@@ -483,9 +497,15 @@ impl Forward {
             )));
         }
 
-        let bytes = resp
-            .bytes()
+        let bytes = tokio::time::timeout(self.timeout, resp.bytes())
             .await
+            .map_err(|_| {
+                warn!("Timeout reading DoH response body from {}", upstream_url);
+                crate::Error::UpstreamTimeout {
+                    upstream: upstream_url.to_string(),
+                    timeout_ms: self.timeout.as_millis() as u64,
+                }
+            })?
             .map_err(|e| crate::Error::Other(e.to_string()))?;
 
         Self::parse_message(&bytes)
@@ -778,36 +798,6 @@ impl ForwardPlugin {
         }
     }
 
-    /// Create a forward plugin with custom timeout (legacy method)
-    ///
-    /// # Arguments
-    ///
-    /// * `upstreams` - List of upstream DNS server addresses
-    /// * `timeout` - Query timeout duration
-    pub fn with_timeout(upstreams: Vec<String>, timeout: Duration) -> Self {
-        let ups: Vec<Upstream> = upstreams
-            .into_iter()
-            .map(|entry| {
-                if let Some((addr, tag)) = entry.split_once('|') {
-                    Upstream::with_tag(addr.to_string(), tag.to_string())
-                } else {
-                    Upstream::new(entry)
-                }
-            })
-            .collect();
-
-        let core = Forward::new(ups, timeout, LoadBalanceStrategy::RoundRobin)
-            .with_health_checks(false)
-            .with_max_attempts(3);
-
-        ForwardPlugin {
-            core,
-            current: AtomicUsize::new(0),
-            concurrent_queries: false,
-            tag: None,
-        }
-    }
-
     /// Return a list of upstream address strings (for testing/inspection)
     pub fn upstream_addrs(&self) -> Vec<String> {
         self.core.upstreams.iter().map(|u| u.addr.clone()).collect()
@@ -908,16 +898,23 @@ impl ForwardPlugin {
         }
     }
 
-    /// Execute concurrent queries to all upstreams, return first success
+    /// Execute concurrent queries to all upstreams, return first success.
+    ///
+    /// Tasks are awaited in completion order (not spawn order) via a
+    /// `JoinSet`, so the first upstream to answer wins regardless of which
+    /// was spawned first. Remaining tasks are aborted once a success arrives,
+    /// so they no longer keep hitting upstreams or skew health stats.
     async fn execute_concurrent(&self, request: Arc<Message>) -> Result<Message> {
-        let mut tasks = Vec::new();
+        use tokio::task::JoinSet;
+
+        let mut set: JoinSet<Result<Message>> = JoinSet::new();
 
         for idx in 0..self.core.upstreams.len() {
             // Use Arc clones for lightweight sharing instead of deep cloning the message
             let req = Arc::clone(&request);
             let core = self.core.clone();
 
-            let task = tokio::spawn(async move {
+            set.spawn(async move {
                 let upstream = &core.upstreams[idx];
                 trace!("Concurrent query to: {}", upstream.addr);
                 let start = std::time::Instant::now();
@@ -959,21 +956,38 @@ impl ForwardPlugin {
                     }
                 }
             });
-
-            tasks.push(task);
         }
 
-        // Wait for first success
-        for task in tasks {
-            if let Ok(Ok(response)) = task.await {
-                trace!(answers = ?response.answers(), "Got fastest response in concurrent mode");
-                return Ok(response);
+        // Wait in completion order: return the first success and abort the rest.
+        // Previously this awaited tasks in spawn order, so a slow-failing
+        // upstream[0] would block a fast upstream[1] from being used, and any
+        // tasks left over kept running as orphans after the early return.
+        let mut last_error: Option<crate::Error> = None;
+        while let Some(res) = set.join_next().await {
+            match res {
+                Ok(Ok(response)) => {
+                    trace!(
+                        answers = ?response.answers(),
+                        "Got fastest response in concurrent mode"
+                    );
+                    set.abort_all();
+                    return Ok(response);
+                }
+                Ok(Err(e)) => {
+                    last_error = Some(e);
+                }
+                Err(join_err) => {
+                    // Task panicked; record a synthetic error and keep waiting
+                    // for the other upstreams.
+                    last_error = Some(crate::Error::Other(format!(
+                        "concurrent query task failed: {join_err}"
+                    )));
+                }
             }
         }
 
-        Err(crate::Error::Other(
-            "All concurrent queries failed".to_string(),
-        ))
+        Err(last_error
+            .unwrap_or_else(|| crate::Error::Other("All concurrent queries failed".to_string())))
     }
 
     /// Execute sequential failover through upstreams
@@ -1189,10 +1203,66 @@ mod tests {
     use super::*;
     use crate::dns::types::{RecordClass, RecordType};
     use crate::dns::{Message, Question, RData, ResourceRecord};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, UdpSocket};
 
     // ============ Tests from core Forward logic ============
+
+    /// Read a DoH POST body from `stream`.
+    ///
+    /// `initial` is the bytes already read after the first `read()` (which
+    /// usually contains the HTTP headers and the start of the body). Parses
+    /// the `Content-Length` from `headers` and keeps reading until the body is
+    /// complete, then parses it as a DNS message.
+    ///
+    /// Shared by the plain-HTTP and HTTPS mock servers to avoid duplicating
+    /// the content-length / read-loop / parse logic.
+    async fn read_doh_request<R: AsyncRead + Unpin>(
+        stream: &mut R,
+        headers: &str,
+        initial: &[u8],
+    ) -> Option<Message> {
+        let mut body = initial.to_vec();
+
+        let mut content_length = 0usize;
+        for line in headers.lines() {
+            if line.to_lowercase().starts_with("content-length:")
+                && let Some(v) = line.split(':').nth(1)
+            {
+                content_length = v.trim().parse().unwrap_or(0);
+            }
+        }
+
+        while body.len() < content_length {
+            let mut more = vec![0u8; 1024];
+            let m = stream.read(&mut more).await.unwrap_or(0);
+            if m == 0 {
+                break;
+            }
+            body.extend_from_slice(&more[..m]);
+        }
+
+        Forward::parse_message(&body[..content_length.min(body.len())]).ok()
+    }
+
+    /// Build a DoH HTTP response body for `req_msg`: clones the request, sets
+    /// it as a response, adds a single A record pointing at `ip`, and returns
+    /// the serialized wire bytes. Returns `None` if the request has no question
+    /// or serialization fails.
+    fn build_doh_response(req_msg: &Message, ip: std::net::Ipv4Addr) -> Option<Vec<u8>> {
+        let q = req_msg.questions().first()?;
+        let mut resp = req_msg.clone();
+        resp.set_response(true);
+        resp.add_answer(ResourceRecord::new(
+            q.qname(),
+            RecordType::A,
+            RecordClass::IN,
+            60,
+            RData::A(ip),
+        ));
+        resp.set_id(req_msg.id());
+        Forward::serialize_message(&resp).ok()
+    }
 
     /// Spawn a UDP "upstream" that replies to a single query with an A record.
     /// Returns the address the server is listening on.
@@ -1560,67 +1630,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_forward_plugin_doh_http_post() {
-        // Start a minimal HTTP server that accepts a single DoH POST
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let local_addr = listener.local_addr().unwrap();
+        // Spawn a minimal DoH HTTP server that answers with 9.9.9.9.
+        let (url, server_task) = spawn_doh_http_server("9.9.9.9").await;
 
-        let server_task = tokio::spawn(async move {
-            if let Ok((mut socket, _)) = listener.accept().await {
-                let mut buf = vec![0u8; 8192];
-                let n = socket.read(&mut buf).await.unwrap_or(0);
-                let req = String::from_utf8_lossy(&buf[..n]);
-
-                let parts: Vec<&str> = req.split("\r\n\r\n").collect();
-                if parts.len() < 2 {
-                    return;
-                }
-                let headers = parts[0];
-                let mut body = parts[1].as_bytes().to_vec();
-
-                let mut content_length = 0usize;
-                for line in headers.lines() {
-                    if line.to_lowercase().starts_with("content-length:")
-                        && let Some(v) = line.split(':').nth(1)
-                    {
-                        content_length = v.trim().parse().unwrap_or(0);
-                    }
-                }
-
-                while body.len() < content_length {
-                    let mut more = vec![0u8; 1024];
-                    let m = socket.read(&mut more).await.unwrap_or(0);
-                    if m == 0 {
-                        break;
-                    }
-                    body.extend_from_slice(&more[..m]);
-                }
-
-                if let Ok(req_msg) = Forward::parse_message(&body[..content_length.min(body.len())])
-                {
-                    let mut resp = req_msg.clone();
-                    resp.set_response(true);
-                    resp.add_answer(ResourceRecord::new(
-                        req_msg.questions()[0].qname(),
-                        RecordType::A,
-                        RecordClass::IN,
-                        60,
-                        RData::A("9.9.9.9".parse().unwrap()),
-                    ));
-                    resp.set_id(req_msg.id());
-
-                    if let Ok(data) = Forward::serialize_message(&resp) {
-                        let resp_hdr = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\n\r\n",
-                            data.len()
-                        );
-                        let _ = socket.write_all(resp_hdr.as_bytes()).await;
-                        let _ = socket.write_all(&data).await;
-                    }
-                }
-            }
-        });
-
-        let url = format!("http://{}/dns-query", local_addr);
         let core = ForwardBuilder::new()
             .add_upstream(Upstream::new(url))
             .timeout(Duration::from_secs(2))
@@ -1680,93 +1692,12 @@ mod tests {
     #[tokio::test]
     #[cfg(any(feature = "doh", feature = "dot"))]
     async fn test_forward_plugin_doh_https_post_with_self_signed_cert() {
-        use rcgen::generate_simple_self_signed;
-        use rustls::ServerConfig;
-        use rustls::pki_types::PrivateKeyDer;
-        use std::sync::Arc;
-        use tokio_rustls::TlsAcceptor;
-
         let _ = rustls::crypto::ring::default_provider().install_default();
 
-        let cert = generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let cert_der = cert.cert.der().clone();
-        let key_der = cert.signing_key.serialize_der();
+        // Spawn a minimal DoH HTTPS server with a self-signed cert that
+        // answers with 4.4.4.4.
+        let (url, server_task) = spawn_doh_https_server("4.4.4.4").await;
 
-        let certs = vec![cert_der.clone()];
-        let priv_key = PrivateKeyDer::Pkcs8(key_der.clone().into());
-        let server_config = ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certs, priv_key)
-            .unwrap();
-
-        let acceptor = TlsAcceptor::from(Arc::new(server_config));
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let local_addr = listener.local_addr().unwrap();
-
-        let server_task = tokio::spawn(async move {
-            if let Ok((socket, _)) = listener.accept().await
-                && let Ok(mut tls_stream) = acceptor.accept(socket).await
-            {
-                let mut buf = vec![0u8; 8192];
-                let n = tls_stream.read(&mut buf).await.unwrap_or(0);
-                let req = String::from_utf8_lossy(&buf[..n]);
-
-                let parts: Vec<&str> = req.split("\r\n\r\n").collect();
-                if parts.len() < 2 {
-                    return;
-                }
-                let headers = parts[0];
-                let mut body = parts[1].as_bytes().to_vec();
-
-                let mut content_length = 0usize;
-                for line in headers.lines() {
-                    if line.to_lowercase().starts_with("content-length:")
-                        && let Some(v) = line.split(':').nth(1)
-                    {
-                        content_length = v.trim().parse().unwrap_or(0);
-                    }
-                }
-
-                while body.len() < content_length {
-                    let mut more = vec![0u8; 1024];
-                    let m = tls_stream.read(&mut more).await.unwrap_or(0);
-                    if m == 0 {
-                        break;
-                    }
-                    body.extend_from_slice(&more[..m]);
-                }
-
-                if let Ok(req_msg) = Forward::parse_message(&body[..content_length.min(body.len())])
-                {
-                    let mut resp = req_msg.clone();
-                    resp.set_response(true);
-                    resp.add_answer(ResourceRecord::new(
-                        req_msg.questions()[0].qname(),
-                        RecordType::A,
-                        RecordClass::IN,
-                        60,
-                        RData::A("4.4.4.4".parse().unwrap()),
-                    ));
-                    resp.set_id(req_msg.id());
-
-                    if let Ok(data) = Forward::serialize_message(&resp) {
-                        let resp_hdr = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\n\r\n",
-                            data.len()
-                        );
-                        let _ = tls_stream.write_all(resp_hdr.as_bytes()).await;
-                        let _ = tls_stream.write_all(&data).await;
-                    }
-                }
-            }
-        });
-
-        unsafe {
-            std::env::set_var("LAZYDNS_DOH_ACCEPT_INVALID_CERT", "1");
-        }
-
-        let url = format!("https://localhost:{}/dns-query", local_addr.port());
         let core = ForwardBuilder::new()
             .add_upstream(Upstream::new(url))
             .timeout(Duration::from_secs(2))
@@ -1810,7 +1741,7 @@ mod tests {
     async fn spawn_doh_http_server(response_ip: &str) -> (String, tokio::task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let local_addr = listener.local_addr().unwrap();
-        let ip = response_ip.to_string();
+        let ip: std::net::Ipv4Addr = response_ip.parse().unwrap();
 
         let handle = tokio::spawn(async move {
             if let Ok((mut socket, _)) = listener.accept().await {
@@ -1818,52 +1749,18 @@ mod tests {
                 let n = socket.read(&mut buf).await.unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
 
-                let parts: Vec<&str> = req.split("\r\n\r\n").collect();
-                if parts.len() < 2 {
+                let Some((headers, body)) = req.split_once("\r\n\r\n") else {
                     return;
-                }
-                let headers = parts[0];
-                let mut body = parts[1].as_bytes().to_vec();
-
-                let mut content_length = 0usize;
-                for line in headers.lines() {
-                    if line.to_lowercase().starts_with("content-length:")
-                        && let Some(v) = line.split(':').nth(1)
-                    {
-                        content_length = v.trim().parse().unwrap_or(0);
-                    }
-                }
-
-                while body.len() < content_length {
-                    let mut more = vec![0u8; 1024];
-                    let m = socket.read(&mut more).await.unwrap_or(0);
-                    if m == 0 {
-                        break;
-                    }
-                    body.extend_from_slice(&more[..m]);
-                }
-
-                if let Ok(req_msg) = Forward::parse_message(&body[..content_length.min(body.len())])
+                };
+                if let Some(req_msg) = read_doh_request(&mut socket, headers, body.as_bytes()).await
+                    && let Some(data) = build_doh_response(&req_msg, ip)
                 {
-                    let mut resp = req_msg.clone();
-                    resp.set_response(true);
-                    resp.add_answer(ResourceRecord::new(
-                        req_msg.questions()[0].qname(),
-                        RecordType::A,
-                        RecordClass::IN,
-                        60,
-                        RData::A(ip.parse().unwrap()),
-                    ));
-                    resp.set_id(req_msg.id());
-
-                    if let Ok(data) = Forward::serialize_message(&resp) {
-                        let resp_hdr = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\n\r\n",
-                            data.len()
-                        );
-                        let _ = socket.write_all(resp_hdr.as_bytes()).await;
-                        let _ = socket.write_all(&data).await;
-                    }
+                    let resp_hdr = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\n\r\n",
+                        data.len()
+                    );
+                    let _ = socket.write_all(resp_hdr.as_bytes()).await;
+                    let _ = socket.write_all(&data).await;
                 }
             }
         });
@@ -1900,7 +1797,7 @@ mod tests {
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let local_addr = listener.local_addr().unwrap();
-        let ip = response_ip.to_string();
+        let ip: std::net::Ipv4Addr = response_ip.parse().unwrap();
 
         let handle = tokio::spawn(async move {
             if let Ok((socket, _)) = listener.accept().await
@@ -1910,52 +1807,19 @@ mod tests {
                 let n = tls_stream.read(&mut buf).await.unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
 
-                let parts: Vec<&str> = req.split("\r\n\r\n").collect();
-                if parts.len() < 2 {
+                let Some((headers, body)) = req.split_once("\r\n\r\n") else {
                     return;
-                }
-                let headers = parts[0];
-                let mut body = parts[1].as_bytes().to_vec();
-
-                let mut content_length = 0usize;
-                for line in headers.lines() {
-                    if line.to_lowercase().starts_with("content-length:")
-                        && let Some(v) = line.split(':').nth(1)
-                    {
-                        content_length = v.trim().parse().unwrap_or(0);
-                    }
-                }
-
-                while body.len() < content_length {
-                    let mut more = vec![0u8; 1024];
-                    let m = tls_stream.read(&mut more).await.unwrap_or(0);
-                    if m == 0 {
-                        break;
-                    }
-                    body.extend_from_slice(&more[..m]);
-                }
-
-                if let Ok(req_msg) = Forward::parse_message(&body[..content_length.min(body.len())])
+                };
+                if let Some(req_msg) =
+                    read_doh_request(&mut tls_stream, headers, body.as_bytes()).await
+                    && let Some(data) = build_doh_response(&req_msg, ip)
                 {
-                    let mut resp = req_msg.clone();
-                    resp.set_response(true);
-                    resp.add_answer(ResourceRecord::new(
-                        req_msg.questions()[0].qname(),
-                        RecordType::A,
-                        RecordClass::IN,
-                        60,
-                        RData::A(ip.parse().unwrap()),
-                    ));
-                    resp.set_id(req_msg.id());
-
-                    if let Ok(data) = Forward::serialize_message(&resp) {
-                        let resp_hdr = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\n\r\n",
-                            data.len()
-                        );
-                        let _ = tls_stream.write_all(resp_hdr.as_bytes()).await;
-                        let _ = tls_stream.write_all(&data).await;
-                    }
+                    let resp_hdr = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\n\r\n",
+                        data.len()
+                    );
+                    let _ = tls_stream.write_all(resp_hdr.as_bytes()).await;
+                    let _ = tls_stream.write_all(&data).await;
                 }
             }
         });

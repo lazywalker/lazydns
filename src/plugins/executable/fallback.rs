@@ -244,10 +244,17 @@ impl Plugin for FallbackPlugin {
             names.push(secondary);
         }
 
+        // Honor the documented `error_only` option (default: false). When true,
+        // fallback only triggers on plugin errors, not on empty responses.
+        let error_only = args
+            .get("error_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         Ok(Arc::new(FallbackPlugin {
             plugins: RwLock::new(Vec::new()),
             pending: RwLock::new(names),
-            error_only: false,
+            error_only,
             tag: config.tag.clone(),
         }))
     }

@@ -55,7 +55,11 @@ async fn integration_ipset_sequence() {
         SequenceStep::Exec(ipset_plugin.clone()),
     ]);
 
-    let mut ctx = Context::new(Message::new());
+    let mut req = Message::new();
+    // The request must carry the question ArbitraryPlugin matches against;
+    // otherwise no response is produced and ipset has nothing to add.
+    req.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+    let mut ctx = Context::new(req);
     // bring Plugin trait into scope so execute is available
     seq.execute(&mut ctx).await.expect("execute sequence");
 
@@ -122,7 +126,11 @@ async fn integration_nftset_sequence() {
         SequenceStep::Exec(nft_plugin.clone()),
     ]);
 
-    let mut ctx = Context::new(Message::new());
+    let mut req = Message::new();
+    // The request must carry the question ArbitraryPlugin matches against;
+    // otherwise no response is produced and nftset has nothing to add.
+    req.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+    let mut ctx = Context::new(req);
     seq.execute(&mut ctx).await.expect("execute sequence");
 
     let added = ctx

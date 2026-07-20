@@ -64,13 +64,17 @@ impl DomainValidatorPlugin {
     /// - Suffix match: "sub.example.com" matches "example.com"
     /// - Wildcard match: "sub.blocked.org" matches "*.blocked.org"
     fn is_blacklisted(&self, domain: &str) -> bool {
+        // DNS names are case-insensitive (RFC 1035). Normalize before
+        // comparing against blacklist patterns, otherwise a query for
+        // MALICIOUS.com would bypass a blacklist entry of malicious.com.
+        let domain = domain.to_lowercase();
         self.blacklist.iter().any(|pattern| {
             if let Some(suffix) = pattern.strip_prefix("*.") {
                 // Wildcard pattern: *.example.com
-                self.matches_suffix(domain, suffix)
+                self.matches_suffix(&domain, suffix)
             } else {
                 // Exact or suffix match
-                self.matches_suffix(domain, pattern)
+                self.matches_suffix(&domain, pattern)
             }
         })
     }
@@ -160,8 +164,13 @@ impl DomainValidatorPlugin {
                 }
             }
 
-            // No consecutive hyphens in strict mode
-            if self.strict_mode && label.contains("--") {
+            // No consecutive hyphens in strict mode, except for valid Punycode
+            // A-labels (RFC 5890): "xn--<punycode>". These legitimately
+            // contain "--" right after the prefix and represent internationalized
+            // domain names; rejecting them would refuse all IDN queries.
+            let is_punycode_label =
+                label.len() >= 5 && label.as_bytes()[..4].eq_ignore_ascii_case(b"xn--");
+            if self.strict_mode && label.contains("--") && !is_punycode_label {
                 return ValidationResult::InvalidFormat;
             }
         }
@@ -457,6 +466,29 @@ mod tests {
         );
     }
 
+    /// Punycode "A-labels" (RFC 5890) encode internationalized domain names
+    /// and legitimately contain "--" after the "xn-" prefix. Strict mode must
+    /// not reject them; otherwise all IDN queries (e.g. Chinese/Arabic domains)
+    /// would be refused under the default configuration.
+    #[tokio::test]
+    async fn test_strict_mode_allows_punycode_labels() {
+        let strict_plugin = DomainValidatorPlugin::new(true, 1000, vec![]);
+        assert_eq!(
+            strict_plugin.validate_domain("xn--fsq.com"),
+            ValidationResult::Valid
+        );
+        // Mixed case prefix is also valid.
+        assert_eq!(
+            strict_plugin.validate_domain("XN--FSQ.com"),
+            ValidationResult::Valid
+        );
+        // Non-punycode labels with "--" are still rejected.
+        assert_eq!(
+            strict_plugin.validate_domain("te--st.com"),
+            ValidationResult::InvalidFormat
+        );
+    }
+
     #[tokio::test]
     async fn test_blacklist() {
         let plugin = DomainValidatorPlugin::new(true, 1000, vec!["malicious.com".to_string()]);
@@ -466,6 +498,16 @@ mod tests {
         );
         assert_eq!(
             plugin.validate_domain("sub.malicious.com"),
+            ValidationResult::Blacklisted
+        );
+        // DNS names are case-insensitive (RFC 1035): an uppercase or mixed-case
+        // query for a blacklisted domain must still match.
+        assert_eq!(
+            plugin.validate_domain("MALICIOUS.com"),
+            ValidationResult::Blacklisted
+        );
+        assert_eq!(
+            plugin.validate_domain("Sub.Malicious.COM"),
             ValidationResult::Blacklisted
         );
     }

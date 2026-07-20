@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Cache plugin in lazydns provides DNS response caching with advanced features like lazy refresh, stale-serving, and prefetching. This guide explains all configuration options and how to optimize caching for your DNS server.
+The Cache plugin in lazydns provides DNS response caching with advanced features like lazy refresh and stale-serving. This guide explains all configuration options and how to optimize caching for your DNS server.
 
 ## Configuration Options
 
@@ -53,22 +53,6 @@ The Cache plugin in lazydns provides DNS response caching with advanced features
 - **Default**: Not set (disabled)
 - **Description**: Enables stale-serving with extended cache duration. When DNS message TTL expires but cache TTL remains, serves stale response with small TTL (5 seconds) and refreshes in background. Set to desired cache duration (e.g., 600 for 10 minutes).
 - **Example**: `cache_ttl: 600`
-
-### Prefetch (Experimental)
-
-#### `enable_prefetch`
-
-- **Type**: Boolean
-- **Default**: false
-- **Description**: Enables prefetching for more aggressive caching. **Note**: This feature is currently experimental and may be removed or changed in future versions.
-- **Example**: `enable_prefetch: true`
-
-#### `prefetch_threshold`
-
-- **Type**: Float (0.0-1.0)
-- **Default**: 0.1
-- **Description**: Threshold for triggering prefetch refresh (more aggressive than lazycache).
-- **Example**: `prefetch_threshold: 0.2`
 
 ## Example Configurations
 

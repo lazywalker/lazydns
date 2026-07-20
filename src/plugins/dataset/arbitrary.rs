@@ -70,7 +70,7 @@ impl ArbitraryPlugin {
         if parts.len() < 3 {
             return None;
         }
-        let name = parts[0].trim_end_matches('.').to_string();
+        let name = parts[0].trim_end_matches('.').to_lowercase();
         let (typ_idx, rdata_idx) = if parts[1].eq_ignore_ascii_case("IN") && parts.len() >= 4 {
             (2, 3)
         } else {
@@ -139,7 +139,7 @@ impl Plugin for ArbitraryPlugin {
 
     async fn execute(&self, ctx: &mut Context) -> Result<()> {
         if let Some(q) = ctx.request().questions().first() {
-            let key = q.qname().trim_end_matches('.').to_string();
+            let key = q.qname().trim_end_matches('.').to_lowercase();
             if let Some(rrs) = self.map.get(&key) {
                 let mut msg = Message::new();
                 msg.set_id(ctx.request().id());
@@ -150,17 +150,13 @@ impl Plugin for ArbitraryPlugin {
                 }
                 ctx.set_response(Some(msg));
             }
-        } else if !self.map.is_empty()
-            && let Some((_k, rrs)) = self.map.iter().next()
-        {
-            let mut msg = Message::new();
-            msg.set_id(ctx.request().id());
-            msg.set_response(true);
-            for rr in rrs {
-                msg.add_answer(rr.clone());
-            }
-            ctx.set_response(Some(msg));
         }
+        // No question in the request: do nothing. Previously this returned an
+        // arbitrary record from the map (HashMap order is non-deterministic),
+        // leaking internal configuration to any client sending an empty query
+        // (health checks, scanners). A DNS response must echo the query's
+        // question section, which is impossible here, so leave the response
+        // unset and let downstream handle it.
         Ok(())
     }
 }
@@ -337,8 +333,14 @@ mod tests {
         let req = Message::new(); // No question
         let mut ctx = Context::new(req);
         plugin.execute(&mut ctx).await.unwrap();
-        // Should still set response with first entry
-        assert!(ctx.response().is_some());
+        // A request without a question section must not produce a response:
+        // doing so would leak an arbitrary configured record (the previous
+        // behavior returned a HashMap's first entry, which is unpredictable
+        // and unrelated to the query).
+        assert!(
+            ctx.response().is_none(),
+            "no response should be synthesized for a question-less request"
+        );
     }
 
     #[tokio::test]
@@ -354,6 +356,23 @@ mod tests {
         plugin.execute(&mut ctx).await.unwrap();
         // Not found in map
         assert!(ctx.response().is_none());
+    }
+
+    /// Regression: domain matching was case-sensitive. A rule written as
+    /// `Example.com` must match a query for `example.com` (RFC 1035).
+    #[tokio::test]
+    async fn test_arbitrary_case_insensitive_match() {
+        let args = ArbitraryArgs {
+            rules: Some(vec!["Example.COM A 1.2.3.4".to_string()]),
+            files: None,
+        };
+        let plugin = ArbitraryPlugin::new(args).unwrap();
+        let mut req = Message::new();
+        req.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+        let mut ctx = Context::new(req);
+        plugin.execute(&mut ctx).await.unwrap();
+        let resp = ctx.response().expect("case-insensitive match should hit");
+        assert_eq!(resp.answer_count(), 1);
     }
 
     #[test]

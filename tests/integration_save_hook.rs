@@ -67,8 +67,12 @@ async fn integration_sequence_save_hook() {
     let seq = Arc::new(SequencePlugin::with_steps(vec![SequenceStep::Exec(arb)]));
     registry.register_replace_with_name("it_sequence", seq.clone());
 
-    // Execute the sequence via the plugin interface
-    let mut ctx = Context::new(Message::new());
+    // Execute the sequence via the plugin interface. The request must carry
+    // the question ArbitraryPlugin matches against (example.com A); otherwise
+    // no response is produced and the save-hook has nothing to cache.
+    let mut req = Message::new();
+    req.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+    let mut ctx = Context::new(req);
     let plugin = registry.get("it_sequence").expect("sequence present");
     plugin.execute(&mut ctx).await.expect("execute sequence");
 

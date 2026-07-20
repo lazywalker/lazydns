@@ -25,8 +25,6 @@ The `cache` plugin stores DNS responses to reduce upstream traffic and improve l
 - `size` (number, default: `1024`): maximum number of cache entries
 - `negative_cache` (bool, default: `false`): enable caching of negative (NXDOMAIN/SERVFAIL) responses
   - `negative_ttl` (number, default: `300`): TTL for negative cache entries (seconds)
-- `enable_prefetch` (bool, default: `false`): enable prefetch when TTL drops below `prefetch_threshold`
-  - `prefetch_threshold` (number, default: `0.1`): fraction (0.0–1.0) of TTL when prefetch triggers
 - `enable_lazycache` (bool, default: `false`): enable LazyCache hot-entry background refresh
   - `lazycache_threshold` (number, default: `0.05`): fraction (0.0–1.0) of TTL when lazy refresh is considered
 - `cache_ttl` (number, default: disabled): if set, stale responses are served for this many seconds while a background refresh happens

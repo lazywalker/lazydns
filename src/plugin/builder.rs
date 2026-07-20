@@ -6,8 +6,6 @@
 use crate::Error;
 use crate::Result;
 use crate::config::types::PluginConfig;
-use crate::dns_type_match;
-use crate::plugin::traits::Matcher;
 use crate::plugin::{Context, Plugin};
 use crate::plugins::executable::SequenceStep;
 use crate::plugins::*;
@@ -25,8 +23,6 @@ use tracing::{debug, error, info, warn};
 pub struct PluginBuilder {
     /// Registry of named plugins for reference
     plugins: HashMap<String, Arc<dyn Plugin>>,
-    /// Server plugin tags
-    server_plugin_tags: Vec<String>,
 }
 
 impl PluginBuilder {
@@ -39,7 +35,6 @@ impl PluginBuilder {
 
         Self {
             plugins: HashMap::new(),
-            server_plugin_tags: Vec::new(),
         }
     }
 
@@ -123,12 +118,10 @@ impl PluginBuilder {
 
             // Accept tcp/udp/doh/dot/doq server plugin types at build time so configuration
             // parsing succeeds. The actual servers are started by the application
-            // runtime (launcher.rs). Here we return
-            // a benign plugin instance (AcceptPlugin) so the name is registered
+            // runtime (launcher.rs), which matches these plugin types itself. Here we
+            // return a benign plugin instance (AcceptPlugin) so the name is registered
             // and can be referenced by other plugins.
             "tcp_server" | "udp_server" | "doh_server" | "dot_server" | "doq_server" => {
-                let tag = config.effective_name().to_string();
-                self.server_plugin_tags.push(tag.clone());
                 Arc::new(crate::plugins::AcceptPlugin::new())
             }
 
@@ -230,11 +223,6 @@ impl PluginBuilder {
             registry.register_replace_with_name(name, Arc::clone(plugin));
         }
         registry
-    }
-
-    /// Get server plugin tags
-    pub fn get_server_plugin_tags(&self) -> &[String] {
-        &self.server_plugin_tags
     }
 
     /// Shutdown all plugins
@@ -409,252 +397,6 @@ fn parse_condition(
     }
 }
 
-/// Legacy hardcoded condition parsing (fallback for backward compatibility)
-#[allow(clippy::type_complexity, dead_code)]
-#[deprecated(
-    since = "0.2.43",
-    note = "Legacy condition parsing is deprecated. Please use the new condition builder framework."
-)]
-fn legacy_parse_condition(
-    builder: &PluginBuilder,
-    condition_str: &str,
-) -> Result<Arc<dyn Fn(&Context) -> bool + Send + Sync>> {
-    // Legacy implementation - all conditions are now handled by builders
-    // This function is kept for backward compatibility and can be removed
-    // once all conditions are migrated to the builder framework
-
-    if condition_str == "has_resp" {
-        Ok(Arc::new(|ctx: &crate::plugin::Context| ctx.has_response()))
-    } else if let Some(ip_set_ref) = condition_str.strip_prefix("resp_ip ") {
-        let ip_set_name = if let Some(name) = ip_set_ref.strip_prefix('$') {
-            name
-        } else {
-            ip_set_ref
-        };
-        // Get the IP set plugin and create a matcher
-        if let Some(plugin) = builder.get_plugin(ip_set_name) {
-            if plugin.name() == "ip_set" {
-                let plugin_clone = Arc::clone(&plugin);
-                Ok(Arc::new(move |ctx: &crate::plugin::Context| {
-                    if let Some(matcher) = plugin_clone
-                        .as_ref()
-                        .as_any()
-                        .downcast_ref::<crate::plugins::dataset::IpSetPlugin>()
-                    {
-                        matcher.matches_context(ctx)
-                    } else {
-                        false
-                    }
-                }))
-            } else {
-                warn!("Plugin '{}' is not an IP set plugin", ip_set_name);
-                Ok(Arc::new(|_ctx: &crate::plugin::Context| false))
-            }
-        } else {
-            warn!("IP set plugin '{}' not found", ip_set_name);
-            Ok(Arc::new(|_ctx: &crate::plugin::Context| false))
-        }
-    } else if let Some(ip_set_ref) = condition_str.strip_prefix("!resp_ip ") {
-        let ip_set_name = if let Some(name) = ip_set_ref.strip_prefix('$') {
-            name
-        } else {
-            ip_set_ref
-        };
-        // Negated IP matching
-        if let Some(plugin) = builder.get_plugin(ip_set_name) {
-            if plugin.name() == "ip_set" {
-                let plugin_clone = Arc::clone(&plugin);
-                Ok(Arc::new(move |ctx: &crate::plugin::Context| {
-                    if let Some(matcher) = plugin_clone
-                        .as_ref()
-                        .as_any()
-                        .downcast_ref::<crate::plugins::dataset::IpSetPlugin>()
-                    {
-                        !matcher.matches_context(ctx)
-                    } else {
-                        true
-                    }
-                }))
-            } else {
-                warn!("Plugin '{}' is not an IP set plugin", ip_set_name);
-                Ok(Arc::new(|_ctx: &crate::plugin::Context| true))
-            }
-        } else {
-            warn!("IP set plugin '{}' not found", ip_set_name);
-            Ok(Arc::new(|_ctx: &crate::plugin::Context| true))
-        }
-    } else if let Some(domain_set_ref) = condition_str.strip_prefix("qname ") {
-        let domain_set_name = if let Some(name) = domain_set_ref.strip_prefix('$') {
-            name
-        } else {
-            domain_set_ref
-        };
-        // Domain matching
-        if let Some(plugin) = builder.get_plugin(domain_set_name) {
-            if plugin.name() == "domain_set" {
-                let plugin_clone = Arc::clone(&plugin);
-                Ok(Arc::new(move |ctx: &crate::plugin::Context| {
-                    if let Some(matcher) = plugin_clone
-                        .as_ref()
-                        .as_any()
-                        .downcast_ref::<crate::plugins::dataset::DomainSetPlugin>(
-                    ) {
-                        matcher.matches_context(ctx)
-                    } else {
-                        false
-                    }
-                }))
-            } else {
-                warn!("Plugin '{}' is not a domain set plugin", domain_set_name);
-                Ok(Arc::new(|_ctx: &crate::plugin::Context| false))
-            }
-        } else {
-            warn!("Domain set plugin '{}' not found", domain_set_name);
-            Ok(Arc::new(|_ctx: &crate::plugin::Context| false))
-        }
-    } else if let Some(domain) = condition_str.strip_prefix("!qname ") {
-        // Negated domain matching - for single domain, not domain set
-        let domain_lower = domain.to_lowercase();
-        Ok(Arc::new(move |ctx: &crate::plugin::Context| {
-            if let Some(question) = ctx.request().questions().first() {
-                let qname = question.qname().to_string().to_lowercase();
-                !qname.eq(&domain_lower)
-            } else {
-                true
-            }
-        }))
-    } else if condition_str.starts_with("qtype ") {
-        // qtype 12 65 - query type matching
-        let type_str = condition_str.strip_prefix("qtype ").unwrap_or_default();
-        let mut qtypes = Vec::new();
-
-        // Parse space-separated type numbers
-        for type_part in type_str.split_whitespace() {
-            match type_part.parse::<u16>() {
-                Ok(qtype_num) => {
-                    qtypes.push(qtype_num);
-                }
-                Err(_) => {
-                    return Err(Error::Config(format!(
-                        "Invalid query type number '{}': {}",
-                        type_part, condition_str
-                    )));
-                }
-            }
-        }
-
-        if qtypes.is_empty() {
-            return Err(Error::Config(format!(
-                "No query types specified: {}",
-                condition_str
-            )));
-        }
-
-        Ok(Arc::new(move |ctx: &crate::plugin::Context| {
-            if let Some(question) = ctx.request().questions().first() {
-                let qtype = question.qtype().to_u16();
-                qtypes.contains(&qtype)
-            } else {
-                false
-            }
-        }))
-    } else if condition_str.starts_with("qclass ") {
-        // qclass IN CH HS - query class matching
-        let class_str = condition_str.strip_prefix("qclass ").unwrap_or_default();
-        let mut qclasses = Vec::new();
-
-        // Parse space-separated class names
-        for class_part in class_str.split_whitespace() {
-            let class_val =
-                dns_type_match!(class_part, u16, "IN" => 1u16, "CH" => 3u16, "HS" => 4u16)
-                    .map_err(|_| {
-                        Error::Config(format!(
-                            "Invalid query class '{}': {}",
-                            class_part, condition_str
-                        ))
-                    })?;
-            qclasses.push(class_val);
-        }
-
-        if qclasses.is_empty() {
-            return Err(Error::Config(format!(
-                "No query classes specified: {}",
-                condition_str
-            )));
-        }
-
-        Ok(Arc::new(move |ctx: &crate::plugin::Context| {
-            if let Some(question) = ctx.request().questions().first() {
-                let qclass = question.qclass().to_u16();
-                qclasses.contains(&qclass)
-            } else {
-                false
-            }
-        }))
-    } else if condition_str.starts_with("rcode ") {
-        // rcode NOERROR NXDOMAIN - response code matching
-        let rcode_str = condition_str.strip_prefix("rcode ").unwrap_or_default();
-        let mut rcodes = Vec::new();
-
-        // Parse space-separated response code names
-        for rcode_part in rcode_str.split_whitespace() {
-            let rcode_val = dns_type_match!(rcode_part, u8,
-                "NOERROR" => 0u8,
-                "FORMERR" | "FORMDERR" => 1u8,
-                "SERVFAIL" => 2u8,
-                "NXDOMAIN" | "NXDOM" => 3u8,
-                "NOTIMP" | "NOTIMPL" => 4u8,
-                "REFUSED" | "REFUSE" => 5u8,
-                "YXDOMAIN" | "YXDOM" => 6u8,
-                "YXRRSET" => 7u8,
-                "NXRRSET" => 8u8,
-                "NOTAUTH" | "NOTAUTHZ" => 9u8,
-                "NOTZONE" => 10u8
-            )
-            .map_err(|_| {
-                Error::Config(format!(
-                    "Invalid response code '{}': {}",
-                    rcode_part, condition_str
-                ))
-            })?;
-            rcodes.push(rcode_val);
-        }
-
-        if rcodes.is_empty() {
-            return Err(Error::Config(format!(
-                "No response codes specified: {}",
-                condition_str
-            )));
-        }
-
-        Ok(Arc::new(move |ctx: &crate::plugin::Context| {
-            if let Some(response) = ctx.response() {
-                let rcode = response.response_code().to_u8();
-                rcodes.contains(&rcode)
-            } else {
-                false
-            }
-        }))
-    } else if condition_str == "has_cname" {
-        // has_cname - check if response contains CNAME records
-        Ok(Arc::new(|ctx: &crate::plugin::Context| {
-            if let Some(response) = ctx.response() {
-                response
-                    .answers()
-                    .iter()
-                    .any(|rr| rr.rtype() == crate::dns::types::RecordType::CNAME)
-            } else {
-                false
-            }
-        }))
-    } else {
-        Err(Error::Config(format!(
-            "Unknown condition: {}",
-            condition_str
-        )))
-    }
-}
-
 #[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
@@ -744,23 +486,6 @@ mod tests {
 
         // Verify original builder still has the plugin
         assert!(builder.get_plugin("test_plugin").is_some());
-    }
-
-    #[test]
-    fn test_plugin_builder_get_server_plugin_tags() {
-        let mut builder = PluginBuilder::new();
-
-        // Initially empty
-        assert_eq!(builder.get_server_plugin_tags().len(), 0);
-
-        // Add server plugin tags
-        builder.server_plugin_tags.push("doh_server".to_string());
-        builder.server_plugin_tags.push("dot_server".to_string());
-
-        let tags = builder.get_server_plugin_tags();
-        assert_eq!(tags.len(), 2);
-        assert!(tags.contains(&"doh_server".to_string()));
-        assert!(tags.contains(&"dot_server".to_string()));
     }
 
     #[tokio::test]
