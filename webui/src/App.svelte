@@ -8,7 +8,6 @@
   import Metrics from "./routes/Metrics.svelte";
   import Alerts from "./routes/Alerts.svelte";
   import Admin from "./routes/Admin.svelte";
-  import Config from "./routes/Config.svelte";
   import { darkMode } from "./lib/stores";
   import { loadServerFeatures } from "./lib/features.svelte";
 
@@ -18,7 +17,6 @@
     "/audit": AuditLogs,
     "/alerts": Alerts,
     "/admin": Admin,
-    "/config": Config,
   };
 
   // Load server features on mount
