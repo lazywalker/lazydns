@@ -44,15 +44,17 @@ pub use lazylog::{
 ///
 /// # Examples
 ///
+/// Rotate by size:
+///
 /// ```yaml
 /// log:
 ///   file:
 ///     enabled: true
 ///     path: ./logs/lazydns.log
 ///     rotation:
-///       size:
-///         max_size: "10M"
-///         max_backups: 5
+///       type: size
+///       max_size: "10M"
+///       max_files: 5
 /// ```
 ///
 /// To rotate files daily:
@@ -63,8 +65,8 @@ pub use lazylog::{
 ///     enabled: true
 ///     path: ./logs/lazydns.log
 ///     rotation:
-///       daily:
-///         max_backups: 7
+///       type: time
+///       period: daily
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FileLogConfig {

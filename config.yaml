@@ -1,8 +1,13 @@
-# lazydns example configuration file
+# lazydns — minimal example configuration file
 #
-# See full examples and documentation at:
-# https://github.com/lazywalker/lazydns/tree/master/examples
-# https://lazywalker.github.io/lazydns/docs/
+# This is a minimal "get started" config for local development.
+# For more configurations, see:
+#   - examples/etc/config.yaml          (full-featured, ~600 lines, heavily commented)
+#   - examples/etc/config-simple.yaml   (simple working setup with cache/hosts)
+#   - etc/lazydns/config.yaml            (deployment example with file logging)
+#   - examples/*.demo.yaml              (one-off demos per plugin)
+#
+# Full documentation: https://lazywalker.github.io/lazydns/docs/
 
 # Log configuration
 log:

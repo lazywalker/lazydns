@@ -32,7 +32,7 @@ plugins:
     type: forward
     args:
       upstreams:
-        - "8.8.8.8:53"
+        - addr: "8.8.8.8:53"
 
   # Sequence: tag request with geosite, then forward
   - tag: geosite_sequence

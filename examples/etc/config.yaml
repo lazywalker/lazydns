@@ -613,12 +613,13 @@ log:
     # Rotation configuration
     rotation:
       # Rotation type: time, size, both, or never
-      type: size
+      # "both" rotates on whichever fires first: daily period OR max_size reached
+      type: both
 
       # Time period: daily or hourly (for type: time or both)
       period: daily
 
-      # Max file size in bytes (for type: size or both)
+      # Max file size before rotation (for type: size or both)
       max_size: 10M # 10MB
 
       # Number of rotated files to keep (for type: size or both)

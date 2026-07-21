@@ -15,8 +15,8 @@ plugins:
     args:
       concurrent: 2
       upstreams:
-        - udp://119.29.29.29
-        - udp://223.5.5.5
+        - addr: udp://119.29.29.29
+        - addr: udp://223.5.5.5
 
   # Forward to remote DNS
   - tag: forward_remote
@@ -24,8 +24,8 @@ plugins:
     args:
       concurrent: 2
       upstreams:
-        - tcp://8.8.8.8
-        - tcp://1.1.1.1
+        - addr: tcp://8.8.8.8
+        - addr: tcp://1.1.1.1
 
   # Custom hosts with auto-reload
   - tag: hosts
@@ -71,13 +71,17 @@ plugins:
         - white-ip-list.txt
 
   # Main sequence (simplified)
+  # Serves local hosts overrides first, then cache, then forwards to upstream.
   - tag: main_sequence
     type: sequence
     args:
-      plugins:
-        - cache
-        - hosts
-        - forward_local
+      - exec: $hosts
+      - matches: has_resp
+        exec: accept
+      - exec: $cache
+      - matches: has_resp
+        exec: accept
+      - exec: $forward_local
 
   # Start UDP server
   - tag: udp_server

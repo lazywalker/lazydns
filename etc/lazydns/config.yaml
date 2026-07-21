@@ -12,7 +12,7 @@ log:
     enabled: true
     path: /var/log/lazydns/lazydns.log
     rotation:
-      type: size
+      type: both
       period: daily
       max_size: 10M
       max_files: 5
