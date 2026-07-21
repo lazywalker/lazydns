@@ -4,6 +4,7 @@
   import { api, type ConfigDumpResponse, type ConfigPluginSummary } from "../lib/api";
   import { notifications, darkMode } from "../lib/stores";
   import { features } from "../lib/features.svelte";
+  import ConfigValue from "../components/ConfigValue.svelte";
 
   // Active tab: "admin" (server management) or "config" (configuration view)
   type TabType = "admin" | "config";
@@ -19,6 +20,8 @@
   let configError: string | null = null;
   // Expandable sequences: keyed by plugin tag (true = expanded).
   let expandedSequences: Record<string, boolean> = {};
+  // Expandable plugins (args detail): keyed by plugin tag (true = expanded).
+  let expandedPlugins: Record<string, boolean> = {};
 
   // Real data
   let serverInfo = {
@@ -124,6 +127,10 @@
 
   function toggleSequence(tag: string) {
     expandedSequences[tag] = !expandedSequences[tag];
+  }
+
+  function togglePlugin(tag: string) {
+    expandedPlugins[tag] = !expandedPlugins[tag];
   }
 
   // Render a short one-line summary of a plugin's args based on common keys.
@@ -1398,24 +1405,55 @@
                     ? 'bg-gray-700/30'
                     : 'bg-gray-100'}"
                 >
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span
-                      class="font-mono font-semibold {$darkMode
-                        ? 'text-white'
-                        : 'text-gray-900'}"
-                    >
-                      {p.tag}
-                    </span>
-                    <span class="badge badge-gray">{p.plugin_type}</span>
-                  </div>
-                  {#if argsPreview(p)}
-                    <p
-                      class="mt-1 text-xs font-mono {$darkMode
+                  <button
+                    on:click={() => togglePlugin(p.tag)}
+                    class="w-full flex items-center justify-between text-left"
+                  >
+                    <div class="flex items-center gap-2 flex-wrap min-w-0">
+                      <span
+                        class="font-mono font-semibold {$darkMode
+                          ? 'text-white'
+                          : 'text-gray-900'}"
+                      >
+                        {p.tag}
+                      </span>
+                      <span class="badge badge-gray">{p.plugin_type}</span>
+                      {#if !expandedPlugins[p.tag] && argsPreview(p)}
+                        <span
+                          class="text-xs font-mono {$darkMode
+                            ? 'text-gray-400'
+                            : 'text-gray-700'} truncate"
+                        >
+                          {argsPreview(p)}
+                        </span>
+                      {/if}
+                    </div>
+                    <svg
+                      class="w-4 h-4 flex-shrink-0 transition-transform {$darkMode
                         ? 'text-gray-400'
-                        : 'text-gray-700'}"
+                        : 'text-gray-500'}"
+                      class:rotate-180={expandedPlugins[p.tag]}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
                     >
-                      {argsPreview(p)}
-                    </p>
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                  </button>
+
+                  {#if expandedPlugins[p.tag]}
+                    <div
+                      class="mt-3 pt-3 border-t {$darkMode
+                        ? 'border-gray-600'
+                        : 'border-gray-200'}"
+                    >
+                      <ConfigValue value={p.args_summary} />
+                    </div>
                   {/if}
                 </div>
               {/each}
