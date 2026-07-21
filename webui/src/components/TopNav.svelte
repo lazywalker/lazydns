@@ -14,6 +14,7 @@
     { path: "/metrics", icon: "chart", label: "Metrics" },
     { path: "/audit", icon: "logs", label: "Logs" },
     { path: "/alerts", icon: "alert", label: "Alerts" },
+    { path: "/config", icon: "settings", label: "Config" },
     { path: "/admin", icon: "settings", label: "Admin" },
   ];
 
