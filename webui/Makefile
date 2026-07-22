@@ -34,7 +34,7 @@ test:
 # Run unit tests with coverage
 coverage:
 	@echo "Running unit tests with coverage..."
-	npm run test -- --coverage
+	npm run test:coverage
 
 # Build for production
 build: check

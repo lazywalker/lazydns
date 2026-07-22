@@ -1,7 +1,6 @@
 // Unit tests for features loading
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { loadServerFeatures, features } from './features.svelte';
 
 // Mock the api module
 vi.mock('./api', () => ({
@@ -12,9 +11,17 @@ vi.mock('./api', () => ({
 
 import api from './api';
 
+// Re-import features fresh for each test (resets module-level `initialized`)
+let loadServerFeatures: typeof import('./features.svelte').loadServerFeatures;
+let features: typeof import('./features.svelte').features;
+
 describe('loadServerFeatures', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
+        vi.resetModules();
+        const mod = await import('./features.svelte');
+        loadServerFeatures = mod.loadServerFeatures;
+        features = mod.features;
     });
 
     it('should attempt to load features from API on first call', async () => {
@@ -49,8 +56,6 @@ describe('loadServerFeatures', () => {
         (api.getServerFeatures as any).mockResolvedValueOnce(allEnabled);
 
         await loadServerFeatures();
-
-        // Just verify the call was made or not made depending on state
     });
 
     it('should handle all features disabled', async () => {
@@ -113,29 +118,27 @@ describe('loadServerFeatures', () => {
         await expect(loadServerFeatures()).resolves.not.toThrow();
     });
 
-    it('should complete without error on various responses', async () => {
-        const mockFeatures = {
-            admin: true,
-            metrics: true,
-            audit: false
-        };
-
+    it('should not call API again after successful initialization', async () => {
+        const mockFeatures = { admin: true, metrics: true, audit: false };
         (api.getServerFeatures as any).mockResolvedValue(mockFeatures);
 
-        // Call should complete without error
-        await expect(loadServerFeatures()).resolves.not.toThrow();
+        await loadServerFeatures();
+        await loadServerFeatures(); // second call should skip
+
+        // API should only be called once
+        expect(api.getServerFeatures).toHaveBeenCalledTimes(1);
     });
 
-    it('should process different feature combinations', async () => {
-        const mockFeatures = {
-            admin: true,
-            metrics: false,
-            audit: true
-        };
+    it('should retry after error (initialized stays false on error)', async () => {
+        // First call fails
+        (api.getServerFeatures as any).mockRejectedValueOnce(new Error('fail'));
+        await loadServerFeatures();
 
-        (api.getServerFeatures as any).mockResolvedValueOnce(mockFeatures);
+        // Second call should still try (initialized is false after error)
+        (api.getServerFeatures as any).mockResolvedValueOnce({ admin: true, metrics: false, audit: false });
+        await loadServerFeatures();
 
-        await expect(loadServerFeatures()).resolves.not.toThrow();
+        expect(api.getServerFeatures).toHaveBeenCalledTimes(2);
     });
 });
 

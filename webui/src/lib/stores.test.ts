@@ -1,6 +1,6 @@
 // Unit tests for stores
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import type { Alert } from '../lib/types';
 import {
@@ -13,7 +13,9 @@ import {
     selectedTimeWindow,
     topNavCollapsed,
     sidebarCollapsed,
-    notifications
+    notifications,
+    startLiveUpdates,
+    stopLiveUpdates
 } from '../lib/stores';
 
 describe('darkMode store', () => {
@@ -187,5 +189,25 @@ describe('notifications store', () => {
         notifications.add({ type: 'info', message: 'Test 2', duration: 0 });
         notifications.clear();
         expect(get(notifications)).toEqual([]);
+    });
+
+    it('should auto-remove notification after duration', async () => {
+        vi.useFakeTimers();
+        notifications.add({ type: 'success', message: 'Auto-remove test', duration: 100 });
+        expect(get(notifications).length).toBeGreaterThan(0);
+
+        vi.advanceTimersByTime(150);
+        expect(get(notifications).some(n => n.message === 'Auto-remove test')).toBe(false);
+        vi.useRealTimers();
+    });
+});
+
+describe('live update no-op functions', () => {
+    it('startLiveUpdates should be callable without error', () => {
+        expect(() => startLiveUpdates()).not.toThrow();
+    });
+
+    it('stopLiveUpdates should be callable without error', () => {
+        expect(() => stopLiveUpdates()).not.toThrow();
     });
 });

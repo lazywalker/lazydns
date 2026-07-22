@@ -28,14 +28,15 @@ export default defineConfig({
                 'src/test/',
                 'src/**/*.test.ts',
                 'src/**/*.spec.ts',
-                'src/lib/mock.ts'
+                'src/lib/mock.ts',
+                'src/lib/types.ts'
             ],
             all: true,
             thresholds: {
-                lines: 15,
-                functions: 60,
-                branches: 50,
-                statements: 15
+                lines: 70,
+                functions: 65,
+                branches: 75,
+                statements: 70
             }
         }
     },
