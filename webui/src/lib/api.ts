@@ -87,6 +87,50 @@ export interface LatencyResponse {
     };
 }
 
+// --- Config dump types (mirrors backend ConfigDumpResponse) ---
+
+export interface ConfigLogSummary {
+    level: string;
+    console: boolean;
+    format: string;
+    file_enabled: boolean;
+}
+
+export interface ConfigAddrSummary {
+    enabled: boolean;
+    addr: string;
+}
+
+export interface ConfigWebSummary {
+    enabled: boolean;
+    listen: string;
+}
+
+export interface ConfigSequenceStep {
+    matches: string | null;
+    exec: string | null;
+}
+
+export interface ConfigPluginSummary {
+    tag: string;
+    plugin_type: string;
+    priority: number;
+    /** Raw plugin args; frontend interprets per type. */
+    args_summary: Record<string, unknown>;
+    is_sequence: boolean;
+    sequence_steps: ConfigSequenceStep[] | null;
+}
+
+export interface ConfigDumpResponse {
+    version: string;
+    log: ConfigLogSummary;
+    admin: ConfigAddrSummary | null;
+    monitoring: ConfigAddrSummary | null;
+    web: ConfigWebSummary | null;
+    plugin_count: number;
+    plugins: ConfigPluginSummary[];
+}
+
 class ApiClient {
     private baseUrl: string;
 
@@ -186,6 +230,11 @@ class ApiClient {
         rss_bytes: number;
     }> {
         return this.fetch('/dashboard/server/info');
+    }
+
+    // Config dump (read-only)
+    async getConfigDump(): Promise<ConfigDumpResponse> {
+        return this.fetch<ConfigDumpResponse>('/config/dump');
     }
 
     // Alert management

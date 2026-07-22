@@ -183,6 +183,8 @@ impl WebServer {
                 get(routes::metrics::latency_distribution),
             )
             .route("/metrics/qps", get(routes::metrics::qps_history))
+            // Config dump (read-only)
+            .route("/config/dump", get(routes::config_dump::dump))
             // SSE streams
             .route(
                 "/audit/query-logs/stream",
@@ -222,6 +224,8 @@ impl WebServer {
                 get(routes::metrics::latency_distribution),
             )
             .route("/metrics/qps", get(routes::metrics::qps_history))
+            // Config dump (read-only)
+            .route("/config/dump", get(routes::config_dump::dump))
             // SSE streams
             .route(
                 "/audit/query-logs/stream",
