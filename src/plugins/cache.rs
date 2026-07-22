@@ -1175,49 +1175,25 @@ impl Plugin for CachePlugin {
             }
         }
 
-        // Parse refresh coordinator configuration
-        let worker_count = match args.get("refresh_worker_count") {
-            Some(Value::Number(n)) => n
-                .as_i64()
-                .ok_or_else(|| Error::Config("Invalid refresh_worker_count value".to_string()))?
-                as usize,
-            Some(_) => {
-                return Err(Error::Config(
-                    "refresh_worker_count must be a number".to_string(),
-                ));
-            }
-            None => 4, // Default: 4 workers
-        };
-
-        let queue_capacity = match args.get("refresh_queue_capacity") {
-            Some(Value::Number(n)) => n
-                .as_i64()
-                .ok_or_else(|| Error::Config("Invalid refresh_queue_capacity value".to_string()))?
-                as usize,
-            Some(_) => {
-                return Err(Error::Config(
-                    "refresh_queue_capacity must be a number".to_string(),
-                ));
-            }
-            None => 1000, // Default: 1000 pending tasks
-        };
-
-        // Create refresh coordinator if lazycache or cache_ttl is enabled
+        // Create refresh coordinator if lazycache or cache_ttl is enabled.
+        // Worker count and queue capacity are internal constants — not user-tunable.
+        const REFRESH_WORKER_COUNT: usize = 4;
+        const REFRESH_QUEUE_CAPACITY: usize = 1000;
         if cache.enable_lazycache || cache.cache_ttl.is_some() {
             // Initialize coordinator only if not already set by builder methods
             if let Ok(mut guard) = cache.refresh_coordinator.try_lock() {
                 if guard.is_none() {
                     *guard = Some(Self::build_coordinator(
-                        worker_count,
-                        queue_capacity,
+                        REFRESH_WORKER_COUNT,
+                        REFRESH_QUEUE_CAPACITY,
                         Arc::clone(&cache.refreshing_keys),
                     ));
                 }
             } else {
                 // If mutex is currently locked, replace to ensure initialization
                 let coordinator = Self::build_coordinator(
-                    worker_count,
-                    queue_capacity,
+                    REFRESH_WORKER_COUNT,
+                    REFRESH_QUEUE_CAPACITY,
                     Arc::clone(&cache.refreshing_keys),
                 );
                 cache.refresh_coordinator = Arc::new(Mutex::new(Some(coordinator)));
@@ -1242,46 +1218,14 @@ impl Plugin for CachePlugin {
             cache = cache.with_lazycache(threshold);
         }
 
-        // Parse cleanup parameters (default: enabled with 60s interval)
-        let enable_cleanup = match args.get("enable_cleanup") {
-            Some(Value::Bool(b)) => *b,
-            Some(_) => {
-                return Err(Error::Config(
-                    "enable_cleanup must be a boolean".to_string(),
-                ));
-            }
-            None => true,
-        };
-
-        let cleanup_interval_secs = match args.get("cleanup_interval_secs") {
-            Some(Value::Number(n)) => n
-                .as_i64()
-                .ok_or_else(|| Error::Config("Invalid cleanup_interval_secs value".to_string()))?
-                as u64,
-            Some(_) => {
-                return Err(Error::Config(
-                    "cleanup_interval_secs must be a number".to_string(),
-                ));
-            }
-            None => 60,
-        };
-
-        let cleanup_pressure_threshold = match args.get("cleanup_pressure_threshold") {
-            Some(Value::Number(n)) => n.as_f64().ok_or_else(|| {
-                Error::Config("Invalid cleanup_pressure_threshold value".to_string())
-            })? as f32,
-            Some(_) => {
-                return Err(Error::Config(
-                    "cleanup_pressure_threshold must be a number".to_string(),
-                ));
-            }
-            None => 0.8,
-        };
-
+        // Cleanup is always enabled with sensible defaults (60s interval, 0.8 pressure).
+        // These are internal tuning constants, not user-facing config.
+        const CLEANUP_INTERVAL_SECS: u64 = 60;
+        const CLEANUP_PRESSURE_THRESHOLD: f32 = 0.8;
         cache = cache.with_cleanup(
-            enable_cleanup,
-            cleanup_interval_secs,
-            cleanup_pressure_threshold,
+            true,
+            CLEANUP_INTERVAL_SECS,
+            CLEANUP_PRESSURE_THRESHOLD,
         );
 
         // Set tag from config

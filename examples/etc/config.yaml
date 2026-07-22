@@ -217,72 +217,22 @@ plugins:
   #   * Cache with LazyCache Optimization
   # ========================================================================
 
-  # Main cache plugin with lazycache enabled for hot entries
-  # LazyCache automatically refreshes frequently accessed entries before
-  # they expire, preventing cache misses and reducing query latency.
-  #
-  # How LazyCache works:
-  #   1. When a cached entry is accessed (cache hit)
-  #   2. If remaining TTL < lazycache_threshold (e.g., 5% of original TTL)
-  #   3. The entry is marked for refresh in a separate query
-  #   4. This keeps hot entries fresh without waiting for expiry
-  #
-  # Benefits:
-  #   - Eliminates cache miss latency for hot domains
-  #   - Reduces upstream DNS load by proactive refresh
-  #   - Improves user experience with consistent response times
+  # Cache with LazyCache: automatically refreshes hot entries before expiry.
   - tag: cache
     type: cache
     args:
-      # Maximum number of cached entries (default: 1024)
       size: 1024
 
-      # Optional: Enable caching of error responses (NXDOMAIN, SERVFAIL, etc.)
+      # Cache error responses (NXDOMAIN, SERVFAIL) for 300s
       negative_cache: true
-      # TTL for cached error responses (in seconds)
       negative_ttl: 300
 
-      # Optional: Enable LazyCache optimization
+      # LazyCache: proactively refresh entries when remaining TTL drops below 5%
       enable_lazycache: true
-      # Refresh hot entries when TTL drops to 5% of original value
-      # Example: entry with TTL=300, refresh when remaining < 15 seconds
       lazycache_threshold: 0.05
 
-      # Optional: Enable stale-serving with extended cache TTL (in seconds)
-      # Set `enable_lazycache` to false to test cache_ttl stale-serving
-      # When DNS TTL expires but cache TTL remains, serve stale response with small TTL
-      # and refresh in background. Set to desired cache duration (e.g., 600 for 10 minutes)
+      # Stale-serving: serve expired entries (up to cache_ttl) while refreshing
       cache_ttl: 600
-
-  # ========================================================================
-  # Alternative Cache Configurations (Commented Out Examples)
-  # ========================================================================
-
-  # Example 1: Conservative cache (large size, high threshold)
-  # Suitable for stable DNS environments with many unique domains
-  # - tag: cache_conservative
-  #   type: cache
-  #   args:
-  #     size: 5000  # Larger cache for more domains
-  #     lazycache_threshold: 0.1  # Refresh at 10% TTL (more conservative)
-
-  # Example 2: Aggressive cache (small size, low threshold)
-  # Suitable for high-traffic environments with limited memory
-  # - tag: cache_aggressive
-  #   type: cache
-  #   args:
-  #     size: 512  # Smaller cache to save memory
-  #     lazycache_threshold: 0.02  # Refresh at 2% TTL (more aggressive)
-
-  # Example 3: Performance cache (without error caching)
-  # Useful when you want to requery failed domains instead of caching errors
-  # - tag: cache_positive_only
-  #   type: cache
-  #   args:
-  #     size: 1024
-  #     negative_cache: false  # Don't cache errors
-  #     enable_lazycache: true
-  #     lazycache_threshold: 0.05
 
   # ========================================================================
   # Audit / Query Logging
@@ -389,8 +339,6 @@ plugins:
     args:
       primary: sequence_direct
       secondary: sequence_proxy
-      threshold: 500
-      always_standby: true
 
   # ========================================================================
   # Main sequence - the core DNS processing logic

@@ -194,7 +194,6 @@ fn validate_plugin_args(
         "cache" => {
             validate_usize_range(args, "size", 1, usize::MAX, true)?;
             validate_u32_range(args, "negative_ttl", 0, MAX_TTL, true)?;
-            validate_u64_range(args, "cleanup_interval_secs", 1, 86400, true)?;
         }
         "forward" => {
             validate_u64_range(args, "timeout", MIN_TIMEOUT_SECS, MAX_TIMEOUT_SECS, true)?;
