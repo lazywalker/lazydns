@@ -300,8 +300,6 @@ mod tests {
             tag: None,
             plugin_type: "ttl".into(),
             args: Value::Mapping(args),
-            priority: 100,
-            config: Default::default(),
         };
 
         let plugin = <TtlPlugin as crate::plugin::Plugin>::init(&cfg).unwrap();

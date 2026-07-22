@@ -78,8 +78,6 @@ pub struct PluginSummary {
     pub tag: String,
     /// Plugin type identifier.
     pub plugin_type: String,
-    /// Plugin priority (lower executes first).
-    pub priority: i32,
     /// Raw plugin args converted to JSON; the frontend interprets per type.
     pub args_summary: serde_json::Value,
     /// Whether this plugin is a `sequence` (and thus has `sequence_steps`).
@@ -171,7 +169,6 @@ fn summarize_plugin(plugin: &PluginConfig) -> PluginSummary {
     PluginSummary {
         tag: plugin.effective_name().to_string(),
         plugin_type,
-        priority: plugin.priority,
         args_summary,
         is_sequence,
         sequence_steps,

@@ -114,7 +114,6 @@ export interface ConfigSequenceStep {
 export interface ConfigPluginSummary {
     tag: string;
     plugin_type: string;
-    priority: number;
     /** Raw plugin args; frontend interprets per type. */
     args_summary: Record<string, unknown>;
     is_sequence: boolean;

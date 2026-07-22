@@ -1074,8 +1074,6 @@ mod tests {
             tag: Some("test".to_string()),
             plugin_type: "domain_set".to_string(),
             args: Value::Mapping(config_args),
-            priority: 100,
-            config: std::collections::HashMap::new(),
         };
 
         let plugin_arc = DomainSetPlugin::init(&config).expect("Failed to init");
@@ -1114,8 +1112,6 @@ mod tests {
             tag: Some("test".to_string()),
             plugin_type: "domain_set".to_string(),
             args: Value::Mapping(config_args),
-            priority: 100,
-            config: std::collections::HashMap::new(),
         };
 
         let plugin_arc = DomainSetPlugin::init(&config).expect("Failed to init");

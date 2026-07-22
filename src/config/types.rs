@@ -22,25 +22,6 @@ pub struct PluginConfig {
     /// Plugin-specific arguments/configuration
     #[serde(default)]
     pub args: serde_yaml::Value,
-
-    /// Plugin priority (lower executes first)
-    #[serde(
-        default = "default_priority",
-        skip_serializing_if = "is_default_priority"
-    )]
-    pub priority: i32,
-
-    /// Plugin-specific configuration (legacy, use args instead)
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub config: HashMap<String, serde_yaml::Value>,
-}
-
-fn default_priority() -> i32 {
-    100
-}
-
-fn is_default_priority(priority: &i32) -> bool {
-    *priority == 100
 }
 
 impl PluginConfig {
@@ -53,15 +34,12 @@ impl PluginConfig {
     ///
     /// let config = PluginConfig::new("forward".to_string());
     /// assert_eq!(config.plugin_type, "forward");
-    /// assert_eq!(config.priority, 100);
     /// ```
     pub fn new(plugin_type: String) -> Self {
         Self {
             tag: None,
             plugin_type,
             args: Value::Mapping(Mapping::new()),
-            priority: default_priority(),
-            config: HashMap::new(),
         }
     }
 
@@ -78,22 +56,6 @@ impl PluginConfig {
     /// ```
     pub fn with_tag(mut self, tag: String) -> Self {
         self.tag = Some(tag);
-        self
-    }
-
-    /// Set the plugin priority
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use lazydns::config::types::PluginConfig;
-    ///
-    /// let config = PluginConfig::new("forward".to_string())
-    ///     .with_priority(50);
-    /// assert_eq!(config.priority, 50);
-    /// ```
-    pub fn with_priority(mut self, priority: i32) -> Self {
-        self.priority = priority;
         self
     }
 
@@ -120,22 +82,6 @@ impl PluginConfig {
         self
     }
 
-    /// Add a configuration value (legacy method, use with_arg instead)
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use lazydns::config::types::PluginConfig;
-    ///
-    /// let config = PluginConfig::new("forward".to_string())
-    ///     .with_config("key".to_string(), serde_yaml::Value::String("value".to_string()));
-    /// assert!(config.config.contains_key("key"));
-    /// ```
-    pub fn with_config(mut self, key: String, value: serde_yaml::Value) -> Self {
-        self.config.insert(key, value);
-        self
-    }
-
     /// Get the effective name (tag, name, or plugin_type in that order)
     ///
     /// # Example
@@ -154,11 +100,13 @@ impl PluginConfig {
         self.tag.as_deref().unwrap_or(&self.plugin_type)
     }
 
-    /// Get the effective args (merges args and config for backward compatibility)
+    /// Get the effective args as a HashMap.
+    ///
+    /// Converts the `args` YAML mapping into a flat key-value HashMap. Non-mapping
+    /// args (e.g. for sequence plugins) yield an empty map.
     pub fn effective_args(&self) -> HashMap<String, Value> {
-        let mut result = self.config.clone();
+        let mut result = HashMap::new();
 
-        // If args is a mapping, extend with it
         if let Value::Mapping(map) = &self.args {
             for (k, v) in map {
                 if let Value::String(key) = k {
@@ -180,17 +128,13 @@ mod tests {
         let config = PluginConfig::new("forward".to_string());
 
         assert_eq!(config.plugin_type, "forward");
-        assert_eq!(config.priority, 100);
     }
 
     #[test]
     fn test_plugin_config_builder() {
-        let config = PluginConfig::new("forward".to_string())
-            .with_tag("my_forward".to_string())
-            .with_priority(50);
+        let config = PluginConfig::new("forward".to_string()).with_tag("my_forward".to_string());
 
         assert_eq!(config.effective_name(), "my_forward");
-        assert_eq!(config.priority, 50);
     }
 
     #[test]
@@ -200,15 +144,5 @@ mod tests {
 
         let config2 = PluginConfig::new("forward".to_string()).with_tag("my_forward".to_string());
         assert_eq!(config2.effective_name(), "my_forward");
-    }
-
-    #[test]
-    fn test_plugin_config_with_values() {
-        let config = PluginConfig::new("forward".to_string()).with_config(
-            "upstream".to_string(),
-            serde_yaml::Value::String("8.8.8.8".to_string()),
-        );
-
-        assert!(config.config.contains_key("upstream"));
     }
 }

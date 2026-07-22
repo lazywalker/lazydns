@@ -1189,10 +1189,6 @@ impl Plugin for ForwardPlugin {
         self.tag.as_deref()
     }
 
-    fn priority(&self) -> i32 {
-        100 // Default priority
-    }
-
     fn as_any(&self) -> &dyn Any {
         self
     }

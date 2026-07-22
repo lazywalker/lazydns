@@ -236,10 +236,6 @@ impl Plugin for DomainValidatorPlugin {
         "domain_validator"
     }
 
-    fn priority(&self) -> i32 {
-        2100 // High priority, run early
-    }
-
     fn init(config: &crate::config::PluginConfig) -> Result<Arc<dyn Plugin>> {
         let args = config.effective_args();
         let strict_mode = args

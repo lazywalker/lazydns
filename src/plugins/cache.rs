@@ -1117,12 +1117,6 @@ impl Plugin for CachePlugin {
         self.tag.as_deref()
     }
 
-    fn priority(&self) -> i32 {
-        // Cache should run early to check for cached responses
-        // and after it's been populated (when returning from other plugins)
-        50
-    }
-
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -1222,11 +1216,7 @@ impl Plugin for CachePlugin {
         // These are internal tuning constants, not user-facing config.
         const CLEANUP_INTERVAL_SECS: u64 = 60;
         const CLEANUP_PRESSURE_THRESHOLD: f32 = 0.8;
-        cache = cache.with_cleanup(
-            true,
-            CLEANUP_INTERVAL_SECS,
-            CLEANUP_PRESSURE_THRESHOLD,
-        );
+        cache = cache.with_cleanup(true, CLEANUP_INTERVAL_SECS, CLEANUP_PRESSURE_THRESHOLD);
 
         // Set tag from config
         cache.tag = config.tag.clone();

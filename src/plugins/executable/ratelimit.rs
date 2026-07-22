@@ -214,11 +214,6 @@ impl Plugin for RateLimitPlugin {
         "rate_limit"
     }
 
-    fn priority(&self) -> i32 {
-        // Should run early to block excessive requests
-        1000
-    }
-
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -406,8 +401,6 @@ mod builder_init_tests {
             tag: None,
             plugin_type: "rate_limit".to_string(),
             args: Value::Mapping(args_map),
-            priority: 100,
-            config: std::collections::HashMap::new(),
         };
 
         let plugin = RateLimitPlugin::init(&cfg).expect("init");

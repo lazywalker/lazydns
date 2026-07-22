@@ -109,13 +109,6 @@ pub trait Plugin: Send + Sync + Debug + Any + 'static {
         true
     }
 
-    /// Plugin priority for execution ordering
-    ///
-    /// Lower values execute first. Default is 100.
-    fn priority(&self) -> i32 {
-        100
-    }
-
     /// Get the plugin as Any for downcasting
     fn as_any(&self) -> &dyn Any {
         // This is a default implementation that won't work for downcasting
@@ -283,7 +276,6 @@ mod tests {
     #[derive(Debug)]
     struct TestPlugin {
         name: String,
-        priority: i32,
     }
 
     #[async_trait]
@@ -295,35 +287,19 @@ mod tests {
         fn name(&self) -> &str {
             &self.name
         }
-
-        fn priority(&self) -> i32 {
-            self.priority
-        }
     }
 
     #[tokio::test]
     async fn test_plugin_trait() {
         let plugin = TestPlugin {
             name: "test".to_string(),
-            priority: 50,
         };
 
         assert_eq!(plugin.name(), "test");
-        assert_eq!(plugin.priority(), 50);
 
         let request = Message::new();
         let mut ctx = Context::new(request);
         assert!(plugin.should_execute(&ctx));
         assert!(plugin.execute(&mut ctx).await.is_ok());
-    }
-
-    #[test]
-    fn test_default_priority() {
-        let plugin = TestPlugin {
-            name: "test".to_string(),
-            priority: 100,
-        };
-
-        assert_eq!(plugin.priority(), 100);
     }
 }
