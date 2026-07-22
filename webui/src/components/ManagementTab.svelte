@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, createEventDispatcher } from "svelte";
+  import { onMount, createEventDispatcher } from "svelte";
   import { formatNumber, formatBytes, formatUptime } from "../lib/utils";
   import { api } from "../lib/api";
   import { notifications, darkMode } from "../lib/stores";

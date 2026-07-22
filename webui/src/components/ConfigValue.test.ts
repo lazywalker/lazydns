@@ -5,6 +5,8 @@
 // long-string truncation, type classification, empty collections, and the
 // max-depth guard.
 
+import { describe, it, expect } from 'vitest';
+
 const TRUNCATE_AT = 60;
 const MAX_DEPTH = 6;
 

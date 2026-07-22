@@ -1,6 +1,7 @@
 //! Domain Validator Plugin
 //!
-//! Validates DNS query domain names for RFC compliance and filters invalid/malicious queries.
+//! Validates DNS query domain names for RFC 1035/1123 compliance and rejects
+//! malformed queries early, reducing upstream load and improving robustness.
 
 use crate::RegisterPlugin;
 use crate::Result;
@@ -9,11 +10,10 @@ use crate::dns::types::RecordType;
 use crate::plugin::{Context, Plugin};
 use async_trait::async_trait;
 use lru::LruCache;
-use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Validation result
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,7 +22,6 @@ pub enum ValidationResult {
     InvalidChars,
     InvalidLength,
     InvalidFormat,
-    Blacklisted,
 }
 
 /// Domain validator plugin
@@ -32,13 +31,11 @@ pub struct DomainValidatorPlugin {
     strict_mode: bool,
     /// LRU cache for validation results
     cache: Arc<RwLock<LruCache<String, ValidationResult>>>,
-    /// Blacklist of domains to reject
-    blacklist: HashSet<String>,
 }
 
 impl DomainValidatorPlugin {
     /// Create a new domain validator
-    pub fn new(strict_mode: bool, cache_size: usize, blacklist: Vec<String>) -> Self {
+    pub fn new(strict_mode: bool, cache_size: usize) -> Self {
         let cache = if cache_size > 0 {
             LruCache::new(NonZeroUsize::new(cache_size).unwrap())
         } else {
@@ -54,38 +51,7 @@ impl DomainValidatorPlugin {
         Self {
             strict_mode,
             cache: Arc::new(RwLock::new(cache)),
-            blacklist: blacklist.into_iter().collect(),
         }
-    }
-
-    /// Check if a domain matches any blacklist pattern
-    /// Supports:
-    /// - Exact match: "example.com" matches "example.com"
-    /// - Suffix match: "sub.example.com" matches "example.com"
-    /// - Wildcard match: "sub.blocked.org" matches "*.blocked.org"
-    fn is_blacklisted(&self, domain: &str) -> bool {
-        // DNS names are case-insensitive (RFC 1035). Normalize before
-        // comparing against blacklist patterns, otherwise a query for
-        // MALICIOUS.com would bypass a blacklist entry of malicious.com.
-        let domain = domain.to_lowercase();
-        self.blacklist.iter().any(|pattern| {
-            if let Some(suffix) = pattern.strip_prefix("*.") {
-                // Wildcard pattern: *.example.com
-                self.matches_suffix(&domain, suffix)
-            } else {
-                // Exact or suffix match
-                self.matches_suffix(&domain, pattern)
-            }
-        })
-    }
-
-    /// Check if domain matches a suffix pattern
-    /// Returns true if domain equals suffix or ends with ".suffix"
-    fn matches_suffix(&self, domain: &str, suffix: &str) -> bool {
-        domain == suffix
-            || (domain.len() > suffix.len()
-                && domain.ends_with(suffix)
-                && domain.as_bytes()[domain.len() - suffix.len() - 1] == b'.')
     }
 
     /// Validate a domain name (legacy API)
@@ -107,11 +73,6 @@ impl DomainValidatorPlugin {
         domain: &str,
         qtype: Option<RecordType>,
     ) -> ValidationResult {
-        // Check blacklist first
-        if self.is_blacklisted(domain) {
-            return ValidationResult::Blacklisted;
-        }
-
         // Basic checks
         if domain.is_empty() || domain.len() > 253 {
             return ValidationResult::InvalidLength;
@@ -225,7 +186,6 @@ impl Plugin for DomainValidatorPlugin {
                 ValidationResult::InvalidChars => "invalid_chars",
                 ValidationResult::InvalidLength => "invalid_length",
                 ValidationResult::InvalidFormat => "invalid_format",
-                ValidationResult::Blacklisted => "blacklisted",
             };
             crate::metrics::DNS_DOMAIN_VALIDATION_TOTAL
                 .with_label_values(&[result_label])
@@ -290,39 +250,14 @@ impl Plugin for DomainValidatorPlugin {
             .get("cache_size")
             .and_then(|v| v.as_u64())
             .unwrap_or(1000) as usize;
-        let blacklist = args
-            .get("blacklist")
-            .and_then(|v| v.as_sequence())
-            .map(|seq| {
-                seq.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
 
-        Ok(Arc::new(Self::new(strict_mode, cache_size, blacklist)))
+        Ok(Arc::new(Self::new(strict_mode, cache_size)))
     }
 }
 
 async fn handle_result(result: ValidationResult, qname: &str, ctx: &mut Context) -> Result<()> {
     match result {
         ValidationResult::Valid => Ok(()),
-        ValidationResult::Blacklisted => {
-            warn!("Rejected blacklisted domain: {}", qname);
-
-            #[cfg(feature = "web")]
-            crate::plugins::AUDIT_LOGGER
-                .log_security_event(
-                    crate::plugins::SecurityEventType::BlockedDomainQuery,
-                    format!("Blacklisted domain rejected: {}", qname),
-                    ctx.get_metadata::<std::net::IpAddr>("client_ip").copied(),
-                    Some(qname.to_string()),
-                )
-                .await;
-
-            set_refused_response(ctx);
-            Ok(())
-        }
         ValidationResult::InvalidChars => {
             debug!("Rejected domain with invalid characters: {}", qname);
 
@@ -384,7 +319,7 @@ fn set_refused_response(ctx: &mut Context) {
 
 impl Default for DomainValidatorPlugin {
     fn default() -> Self {
-        Self::new(true, 1000, vec![])
+        Self::new(true, 1000)
     }
 }
 
@@ -453,13 +388,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_strict_mode() {
-        let strict_plugin = DomainValidatorPlugin::new(true, 1000, vec![]);
+        let strict_plugin = DomainValidatorPlugin::new(true, 1000);
         assert_eq!(
             strict_plugin.validate_domain("te--st.com"),
             ValidationResult::InvalidFormat
         );
 
-        let lenient_plugin = DomainValidatorPlugin::new(false, 1000, vec![]);
+        let lenient_plugin = DomainValidatorPlugin::new(false, 1000);
         assert_eq!(
             lenient_plugin.validate_domain("te--st.com"),
             ValidationResult::Valid
@@ -472,7 +407,7 @@ mod tests {
     /// would be refused under the default configuration.
     #[tokio::test]
     async fn test_strict_mode_allows_punycode_labels() {
-        let strict_plugin = DomainValidatorPlugin::new(true, 1000, vec![]);
+        let strict_plugin = DomainValidatorPlugin::new(true, 1000);
         assert_eq!(
             strict_plugin.validate_domain("xn--fsq.com"),
             ValidationResult::Valid
@@ -490,121 +425,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_blacklist() {
-        let plugin = DomainValidatorPlugin::new(true, 1000, vec!["malicious.com".to_string()]);
-        assert_eq!(
-            plugin.validate_domain("malicious.com"),
-            ValidationResult::Blacklisted
-        );
-        assert_eq!(
-            plugin.validate_domain("sub.malicious.com"),
-            ValidationResult::Blacklisted
-        );
-        // DNS names are case-insensitive (RFC 1035): an uppercase or mixed-case
-        // query for a blacklisted domain must still match.
-        assert_eq!(
-            plugin.validate_domain("MALICIOUS.com"),
-            ValidationResult::Blacklisted
-        );
-        assert_eq!(
-            plugin.validate_domain("Sub.Malicious.COM"),
-            ValidationResult::Blacklisted
-        );
-    }
-
-    #[tokio::test]
-    async fn test_wildcard_blacklist() {
-        let plugin = DomainValidatorPlugin::new(
-            true,
-            1000,
-            vec!["*.blocked.org".to_string(), "*.test.invalid".to_string()],
-        );
-
-        // Test wildcard pattern *.blocked.org
-        assert_eq!(
-            plugin.validate_domain("blocked.org"),
-            ValidationResult::Blacklisted
-        );
-        assert_eq!(
-            plugin.validate_domain("sub.blocked.org"),
-            ValidationResult::Blacklisted
-        );
-        assert_eq!(
-            plugin.validate_domain("deep.sub.blocked.org"),
-            ValidationResult::Blacklisted
-        );
-
-        // Test wildcard pattern *.test.invalid
-        assert_eq!(
-            plugin.validate_domain("test.invalid"),
-            ValidationResult::Blacklisted
-        );
-        assert_eq!(
-            plugin.validate_domain("any.test.invalid"),
-            ValidationResult::Blacklisted
-        );
-
-        // Test non-matching domains
-        assert_eq!(
-            plugin.validate_domain("example.com"),
-            ValidationResult::Valid
-        );
-        assert_eq!(
-            plugin.validate_domain("blocked.com"),
-            ValidationResult::Valid
-        );
-    }
-
-    #[tokio::test]
-    async fn test_mixed_blacklist() {
-        let plugin = DomainValidatorPlugin::new(
-            true,
-            1000,
-            vec![
-                "exact.example.com".to_string(),
-                "*.wildcard.com".to_string(),
-                "suffix.org".to_string(),
-            ],
-        );
-
-        // Exact match
-        assert_eq!(
-            plugin.validate_domain("exact.example.com"),
-            ValidationResult::Blacklisted
-        );
-
-        // Wildcard match
-        assert_eq!(
-            plugin.validate_domain("wildcard.com"),
-            ValidationResult::Blacklisted
-        );
-        assert_eq!(
-            plugin.validate_domain("sub.wildcard.com"),
-            ValidationResult::Blacklisted
-        );
-
-        // Suffix match
-        assert_eq!(
-            plugin.validate_domain("suffix.org"),
-            ValidationResult::Blacklisted
-        );
-        assert_eq!(
-            plugin.validate_domain("sub.suffix.org"),
-            ValidationResult::Blacklisted
-        );
-
-        // Non-matching domains
-        assert_eq!(
-            plugin.validate_domain("example.com"),
-            ValidationResult::Valid
-        );
-    }
-
-    #[tokio::test]
     async fn test_cache() {
         use crate::dns::{Message, Question, RecordClass, RecordType};
 
-        let plugin = DomainValidatorPlugin::new(true, 10, vec![]);
+        let plugin = DomainValidatorPlugin::new(true, 10);
 
         // Create a test request
         let mut request = Message::new();

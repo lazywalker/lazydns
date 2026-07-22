@@ -15,8 +15,6 @@
   // Error from the last reload attempt (persistent banner on Configuration tab).
   let reloadError: string | null = null;
 
-  let managementTab: ManagementTab;
-
   async function fetchConfigDump() {
     try {
       configDump = await api.getConfigDump();
@@ -142,7 +140,6 @@
 
   {#if activeTab === "admin"}
     <ManagementTab
-      bind:this={managementTab}
       on:reloadsuccess={onReloadSuccess}
       on:reloaderror={onReloadError}
     />
