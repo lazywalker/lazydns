@@ -359,7 +359,7 @@ async fn server_features() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "admin": cfg!(feature = "admin"),
         "metrics": cfg!(feature = "metrics"),
-        "audit": cfg!(feature = "audit"),
+        "audit": cfg!(feature = "web"),
     }))
 }
 

@@ -25,7 +25,7 @@ plugins:
 
 ## Audit Integration
 
-When the `audit` feature is enabled and an audit plugin is active, this plugin will trigger a `rate_limit_exceeded` security event whenever a client's request is rejected.
+When the `web` feature is enabled, this plugin will trigger a `rate_limit_exceeded` security event whenever a client's request is rejected.
 
 ## When to use
 

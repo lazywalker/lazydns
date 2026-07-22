@@ -182,7 +182,7 @@ impl Plugin for RateLimitPlugin {
         if self.should_limit(client_ip) {
             warn!("Rate limit exceeded for IP: {}", client_ip);
 
-            #[cfg(feature = "audit")]
+            #[cfg(feature = "web")]
             // Log security event
             crate::plugins::AUDIT_LOGGER
                 .log_security_event(

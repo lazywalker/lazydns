@@ -162,7 +162,7 @@ impl Plugin for QueryAclPlugin {
             AclAction::Deny => {
                 warn!("ACL: Denied query from {}", client_ip);
 
-                #[cfg(feature = "audit")]
+                #[cfg(feature = "web")]
                 // Log ACL denied security event
                 if let Some(q) = ctx.request().questions().first() {
                     let qname = q.qname().to_string();

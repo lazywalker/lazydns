@@ -1,33 +1,15 @@
-//! Unified audit plugin module
+//! Audit subsystem (web feature internal).
 //!
-//! Consolidates DNS query logging and security event auditing into a single plugin.
+//! Provides DNS query logging and security event tracking via the event bus.
+//! Compiled with the `web` feature and operates automatically — no user
+//! configuration or plugin registration is required.
 //!
-//! # Features
-//!
-//! - **Query Logging**: Record DNS queries with optional response details
-//! - **Sampling**: Reduce I/O by logging only a percentage of queries
-//! - **Security Events**: Track rate limiting, blocked domains, upstream failures
-//! - **Structured Output**: JSON format for SIEM integration
-//! - **Async File I/O**: Non-blocking writes using tokio
-//! - **Three Execution Modes**: QueryLog, Security, or Full
-//!
-//! # Configuration
-//!
-//! ```yaml
-//! plugins:
-//!   - tag: audit
-//!     type: audit
-//!     args:
-//!       query_log:
-//!         path: /var/log/lazydns/queries.log
-//!         format: json
-//!         sampling_rate: 1.0
-//!       security_events:
-//!         path: /var/log/lazydns/security.log
-//!         enabled: true
-//! ```
+//! - Query logging: `PluginHandler::handle()` calls [`plugin::log_query_for_context`]
+//!   after each request, publishing to the event bus.
+//! - Security events: individual plugins (ratelimit, blackhole, forward, ...)
+//!   call [`AUDIT_LOGGER.log_security_event`] directly.
+//! - Consumers: WebUI SSE streams and the alert engine subscribe to the event bus.
 
-pub mod config;
 pub mod event;
 #[cfg(feature = "web")]
 pub mod event_bus;
@@ -35,11 +17,10 @@ pub mod logger;
 pub mod plugin;
 
 // Public re-exports
-pub use config::{AuditConfig, QueryLogConfig, SecurityEventConfig};
 pub use event::{AuditEvent, QueryLogEntry, SecurityEventType};
 #[cfg(feature = "web")]
 pub use event_bus::{
     AuditEventBus, QueryLogSubscriber, SecurityEventSubscriber, event_bus, init_event_bus,
 };
 pub use logger::{AUDIT_LOGGER, AuditLogger};
-pub use plugin::AuditPlugin;
+pub use plugin::log_query_for_context;

@@ -1,251 +1,107 @@
-//! Unified audit plugin
+//! Audit query logging.
 //!
-//! This plugin consolidates query logging and security event tracking
-//! into a single plugin that can be configured under the plugins section.
+//! This module provides the query-logging hook used by `PluginHandler` to
+//! automatically publish every DNS query to the event bus (for WebUI
+//! real-time streaming and the alert engine). It is compiled with the `web`
+//! feature and requires no user configuration — logging is always active when
+//! `web` is enabled.
 
-use super::config::AuditConfig;
+use super::event::QueryLogEntry;
 use super::logger::AUDIT_LOGGER;
-use crate::RegisterPlugin;
-use crate::Result;
-use crate::config::types::PluginConfig;
-use crate::plugin::{Context, Plugin};
-use async_trait::async_trait;
+use crate::plugin::Context;
 use std::net::IpAddr;
-use std::sync::Arc;
 use std::time::Instant;
-use tracing::info;
 
-/// Unified audit plugin that handles both query logging and security events
+/// Check if a domain is a DNS-SD discovery query (filtered from query logs to
+/// reduce noise, since these are internal mDNS discovery probes).
+fn is_dns_sd_query(qname: &str) -> bool {
+    // Examples:
+    //   b._dns-sd._udp.0.8.100.10.in-addr.arpa
+    //   db._dns-sd._udp.0.8.100.10.in-addr.arpa
+    //   _services._dns-sd._udp.local
+    qname.contains("._dns-sd._udp")
+}
+
+/// Log a DNS query for the given request context.
 ///
-/// Behavior is controlled through configuration:
-/// - If `query_log` is configured, queries are logged
-/// - If `security_events` is configured and enabled, security events are logged
-/// - Multiple audit plugin invocations can be added at different points in the sequence
-#[derive(Debug, Clone, RegisterPlugin)]
-pub struct AuditPlugin {
-    /// Whether query logging is enabled
-    query_log_enabled: bool,
-    /// Whether to include response details in query logs
-    include_response: bool,
-    /// Whether to include client IP in query logs
-    include_client_ip: bool,
-    /// Whether to exclude DNS-SD discovery queries
-    exclude_dns_sd: bool,
-    /// Whether security event logging is enabled
-    security_events_enabled: bool,
-}
+/// Called automatically by `PluginHandler::handle()` after the plugin sequence
+/// completes (when the `web` feature is enabled). Builds a [`QueryLogEntry`]
+/// from the context's request/response/metadata and publishes it to the event
+/// bus via [`AUDIT_LOGGER`]. DNS-SD discovery queries are skipped to reduce
+/// noise.
+pub fn log_query_for_context(ctx: &Context) {
+    let start_time = ctx.get_metadata::<Instant>("request_start_time").copied();
 
-impl AuditPlugin {
-    /// Create a new audit plugin from configuration
-    pub fn from_config(config: &AuditConfig) -> Self {
-        let query_log_enabled = config.query_log.is_some();
-        let include_response = config
-            .query_log
-            .as_ref()
-            .map(|q| q.include_response)
-            .unwrap_or(true);
+    let request = ctx.request();
+    let question = match request.questions().first() {
+        Some(q) => q,
+        None => return, // No question to log
+    };
 
-        let include_client_ip = config
-            .query_log
-            .as_ref()
-            .map(|q| q.include_client_ip)
-            .unwrap_or(true);
+    let qname = question.qname().to_string();
 
-        let exclude_dns_sd = config
-            .query_log
-            .as_ref()
-            .map(|q| q.exclude_dns_sd)
-            .unwrap_or(true);
+    // Skip DNS-SD discovery queries (internal mDNS probes)
+    if is_dns_sd_query(&qname) {
+        return;
+    }
 
-        let security_events_enabled = config
-            .security_events
-            .as_ref()
-            .map(|s| s.enabled)
+    let protocol = ctx
+        .get_metadata::<String>("protocol")
+        .map(|s| s.as_str())
+        .unwrap_or("unknown");
+
+    let mut entry = QueryLogEntry::new(
+        request.id(),
+        protocol,
+        qname,
+        format!("{:?}", question.qtype()),
+        format!("{:?}", question.qclass()),
+    );
+
+    // Attach client IP if available
+    if let Some(ip) = ctx.get_metadata::<IpAddr>("client_ip") {
+        entry = entry.with_client_ip(*ip);
+    }
+
+    // Attach response details if available
+    if let Some(response) = ctx.response() {
+        let response_time_us = start_time
+            .map(|t| t.elapsed().as_micros() as u64)
+            .unwrap_or(0);
+        let response_time_ms = response_time_us / 1000;
+
+        entry = entry.with_response(
+            &format!("{:?}", response.response_code()),
+            response.answers().len(),
+            response_time_ms,
+        );
+        entry = entry.with_response_time_us(response_time_us);
+
+        // Check if cached (cache plugin sets "response_from_cache" metadata)
+        let cached = ctx
+            .get_metadata::<bool>("response_from_cache")
+            .copied()
             .unwrap_or(false);
+        entry = entry.with_cached(cached);
 
-        Self {
-            query_log_enabled,
-            include_response,
-            include_client_ip,
-            exclude_dns_sd,
-            security_events_enabled,
+        // Add answer IPs for A/AAAA queries
+        let answers: Vec<String> = response
+            .answers()
+            .iter()
+            .filter_map(|a| match a.rdata() {
+                crate::dns::RData::A(ip) => Some(ip.to_string()),
+                crate::dns::RData::AAAA(ip) => Some(ip.to_string()),
+                _ => None,
+            })
+            .collect();
+
+        if !answers.is_empty() {
+            entry = entry.with_answers(answers);
         }
     }
 
-    /// Initialize the audit logger from configuration
-    pub async fn init_from_config(&self, config: AuditConfig) -> Result<()> {
-        info!(
-            query_log_enabled = self.query_log_enabled,
-            security_events_enabled = self.security_events_enabled,
-            "Initializing audit plugin"
-        );
-        AUDIT_LOGGER.init(config).await
-    }
-
-    /// Check if a domain is a DNS-SD discovery query
-    fn is_dns_sd_query(qname: &str) -> bool {
-        // DNS-SD discovery queries match _dns-sd._udp pattern
-        // Examples:
-        //   b._dns-sd._udp.0.8.100.10.in-addr.arpa
-        //   db._dns-sd._udp.0.8.100.10.in-addr.arpa
-        //   _services._dns-sd._udp.local
-        qname.contains("._dns-sd._udp")
-    }
-
-    /// Log a query entry (sync - publishes to event bus)
-    fn log_query(&self, ctx: &Context, start_time: Option<Instant>) {
-        // Skip if query logging is not enabled
-        if !self.query_log_enabled {
-            return;
-        }
-
-        // Get first question from request
-        let request = ctx.request();
-        let question = match request.questions().first() {
-            Some(q) => q,
-            None => {
-                tracing::debug!("No question to log");
-                return; // No question to log
-            }
-        };
-
-        let qname = question.qname().to_string();
-
-        // Skip DNS-SD discovery queries if configured
-        if self.exclude_dns_sd && Self::is_dns_sd_query(&qname) {
-            tracing::trace!(qname = %qname, "Skipping DNS-SD discovery query");
-            return;
-        }
-
-        tracing::debug!(qname = %qname, "Audit plugin logging query");
-
-        // Get protocol from metadata
-        let protocol = ctx
-            .get_metadata::<String>("protocol")
-            .map(|s| s.as_str())
-            .unwrap_or("unknown");
-
-        // Build log entry
-        let mut entry = super::event::QueryLogEntry::new(
-            request.id(),
-            protocol,
-            qname,
-            format!("{:?}", question.qtype()),
-            format!("{:?}", question.qclass()),
-        );
-
-        // Add client IP if available and configured
-        if self.include_client_ip
-            && let Some(ip) = ctx.get_metadata::<IpAddr>("client_ip")
-        {
-            entry = entry.with_client_ip(*ip);
-        }
-
-        // Add response details if available and configured
-        if self.include_response
-            && let Some(response) = ctx.response()
-        {
-            // Use microseconds for higher precision, then convert to fractional milliseconds
-            let response_time_us = start_time
-                .map(|t| t.elapsed().as_micros() as u64)
-                .unwrap_or(0);
-            // Convert to milliseconds (with 3 decimal places precision)
-            let response_time_ms = response_time_us / 1000;
-
-            entry = entry.with_response(
-                &format!("{:?}", response.response_code()),
-                response.answers().len(),
-                response_time_ms,
-            );
-
-            // Store fractional milliseconds for latency tracking
-            entry = entry.with_response_time_us(response_time_us);
-
-            // Check if cached (cache plugin sets "response_from_cache" metadata to true on hit)
-            // If metadata is None, it means this was a cache miss (response came from upstream)
-            let cached = ctx
-                .get_metadata::<bool>("response_from_cache")
-                .copied()
-                .unwrap_or(false);
-            entry = entry.with_cached(cached);
-
-            // Add answer IPs for A/AAAA queries
-            let answers: Vec<String> = response
-                .answers()
-                .iter()
-                .filter_map(|a| match a.rdata() {
-                    crate::dns::RData::A(ip) => Some(ip.to_string()),
-                    crate::dns::RData::AAAA(ip) => Some(ip.to_string()),
-                    _ => None,
-                })
-                .collect();
-
-            if !answers.is_empty() {
-                entry = entry.with_answers(answers);
-            }
-        }
-
-        // Log the entry (sync - publishes to event bus)
-        AUDIT_LOGGER.log_query(entry);
-    }
-}
-
-impl Default for AuditPlugin {
-    fn default() -> Self {
-        // Default: enable query logging with response details
-        Self {
-            query_log_enabled: true,
-            include_response: true,
-            include_client_ip: true,
-            exclude_dns_sd: true,
-            security_events_enabled: false,
-        }
-    }
-}
-
-#[async_trait]
-impl Plugin for AuditPlugin {
-    fn name(&self) -> &str {
-        "audit"
-    }
-
-    async fn execute(&self, ctx: &mut Context) -> Result<()> {
-        tracing::trace!("Audit plugin execute called");
-        // Get start time from metadata if available
-        let start_time = ctx.get_metadata::<Instant>("request_start_time").copied();
-
-        // Log query if applicable (sync - publishes to event bus)
-        self.log_query(ctx, start_time);
-
-        Ok(())
-    }
-
-    fn init(config: &PluginConfig) -> Result<Arc<dyn Plugin>> {
-        // Extract audit config from plugin args
-        let audit_config: AuditConfig = serde_yaml::from_value(config.args.clone())
-            .map_err(|e| crate::Error::Config(format!("Failed to parse audit config: {}", e)))?;
-
-        // Create plugin with configuration-based settings
-        let plugin = Arc::new(AuditPlugin::from_config(&audit_config));
-
-        // Initialize the audit logger in background
-        let plugin_clone = Arc::clone(&plugin);
-
-        // Use block_in_place for the async init to ensure completion before returning
-        if tokio::runtime::Handle::try_current().is_ok() {
-            // We're in a tokio runtime
-            tokio::spawn(async move {
-                if let Err(e) = plugin_clone.init_from_config(audit_config).await {
-                    tracing::error!("Failed to initialize audit logger: {}", e);
-                }
-            });
-        } else {
-            // Fallback for non-async context (shouldn't happen in practice)
-            tracing::warn!("Not in tokio runtime context for audit plugin initialization");
-        }
-
-        Ok(plugin)
-    }
+    // Publish to event bus (WebUI SSE + alert engine consume from here)
+    AUDIT_LOGGER.log_query(entry);
 }
 
 #[cfg(test)]
@@ -254,122 +110,42 @@ mod tests {
     use crate::dns::{Message, Question, RecordClass, RecordType};
 
     #[test]
-    fn test_audit_plugin_default() {
-        let plugin = AuditPlugin::default();
-        assert!(plugin.query_log_enabled);
-        assert!(plugin.include_response);
-        assert!(plugin.exclude_dns_sd);
-        assert!(!plugin.security_events_enabled);
-        assert_eq!(plugin.name(), "audit");
-    }
-
-    #[test]
     fn test_dns_sd_query_detection() {
-        // Test various DNS-SD query patterns
-        assert!(AuditPlugin::is_dns_sd_query(
-            "b._dns-sd._udp.0.8.100.10.in-addr.arpa"
-        ));
-        assert!(AuditPlugin::is_dns_sd_query(
-            "db._dns-sd._udp.0.8.100.10.in-addr.arpa"
-        ));
-        assert!(AuditPlugin::is_dns_sd_query("_services._dns-sd._udp.local"));
-        assert!(AuditPlugin::is_dns_sd_query("r._dns-sd._udp.example.com"));
+        assert!(is_dns_sd_query("b._dns-sd._udp.0.8.100.10.in-addr.arpa"));
+        assert!(is_dns_sd_query("db._dns-sd._udp.0.8.100.10.in-addr.arpa"));
+        assert!(is_dns_sd_query("_services._dns-sd._udp.local"));
+        assert!(is_dns_sd_query("r._dns-sd._udp.example.com"));
 
-        // Test non-DNS-SD queries
-        assert!(!AuditPlugin::is_dns_sd_query("example.com"));
-        assert!(!AuditPlugin::is_dns_sd_query("www.example.com"));
-        assert!(!AuditPlugin::is_dns_sd_query("_tcp.example.com"));
-    }
-
-    #[test]
-    fn test_audit_plugin_from_config_query_log_only() {
-        let config = AuditConfig {
-            enabled: true,
-            log_to_file: false,
-            buffer_size: 100,
-            max_file_size: 100 * 1024 * 1024,
-            max_files: 10,
-            query_log: Some(Default::default()),
-            security_events: None,
-        };
-        let plugin = AuditPlugin::from_config(&config);
-        assert!(plugin.query_log_enabled);
-        assert!(!plugin.security_events_enabled);
-    }
-
-    #[test]
-    fn test_audit_plugin_from_config_include_response_false() {
-        use super::super::config::QueryLogConfig;
-        let config = AuditConfig {
-            enabled: true,
-            log_to_file: false,
-            buffer_size: 100,
-            max_file_size: 100 * 1024 * 1024,
-            max_files: 10,
-            query_log: Some(QueryLogConfig {
-                log_to_file: None,
-                include_response: false,
-                ..Default::default()
-            }),
-            security_events: None,
-        };
-        let plugin = AuditPlugin::from_config(&config);
-        assert!(plugin.query_log_enabled);
-        assert!(!plugin.include_response);
+        assert!(!is_dns_sd_query("example.com"));
+        assert!(!is_dns_sd_query("www.example.com"));
+        assert!(!is_dns_sd_query("_tcp.example.com"));
     }
 
     #[tokio::test]
-    async fn test_audit_plugin_execute() {
-        let plugin = AuditPlugin::default();
-
+    async fn test_log_query_for_context_does_not_panic() {
         let mut request = Message::new();
         request.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
 
         let mut ctx = Context::new(request);
         ctx.set_metadata("protocol".to_string(), "udp".to_string());
 
-        // Should not fail
-        let result = plugin.execute(&mut ctx).await;
-        assert!(result.is_ok());
+        // Should not panic even without event bus initialized
+        log_query_for_context(&ctx);
     }
 
     #[tokio::test]
-    async fn test_audit_plugin_execute_with_response() {
-        let plugin = AuditPlugin::default();
-
+    async fn test_log_query_for_context_with_response() {
         let mut request = Message::new();
         request.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
 
         let mut ctx = Context::new(request);
         ctx.set_metadata("protocol".to_string(), "tcp".to_string());
 
-        // Create a response
         let mut response = Message::new();
         response.set_response(true);
         ctx.set_response(Some(response));
 
-        let result = plugin.execute(&mut ctx).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_audit_plugin_disabled_query_log() {
-        let plugin = AuditPlugin {
-            query_log_enabled: false,
-            include_response: true,
-            security_events_enabled: false,
-            include_client_ip: true,
-            exclude_dns_sd: true,
-        };
-
-        let mut request = Message::new();
-        request.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
-
-        let mut ctx = Context::new(request);
-        ctx.set_metadata("protocol".to_string(), "udp".to_string());
-
-        // Should execute but not log anything
-        let result = plugin.execute(&mut ctx).await;
-        assert!(result.is_ok());
+        // Should not panic with response present
+        log_query_for_context(&ctx);
     }
 }

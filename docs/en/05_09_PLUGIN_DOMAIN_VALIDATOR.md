@@ -47,7 +47,7 @@ The blacklist supports three matching modes:
 
 ## Audit Integration
 
-When the `audit` feature is enabled and an audit plugin is active, this plugin triggers the following security events:
+When the `web` feature is enabled, this plugin triggers the following security events:
 - **`malformed_query`**: whenever a domain fails RFC validation rules.
 - **`blocked_domain_query`**: whenever a domain matches the blacklist.
 

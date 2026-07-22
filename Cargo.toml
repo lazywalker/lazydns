@@ -136,9 +136,7 @@ harness = false
 
 [features]
 default = ["log-ansi"]
-audit = ["time/formatting", "time/local-offset", "time/macros"]
 full = [
-    "audit",
     "cron",
     "log-ansi",
     "log-file",
@@ -167,11 +165,15 @@ doq = ["rustls", "rustls-pemfile", "quinn"]
 admin = ["axum"]
 # Enable metrics endpoint
 metrics = ["axum", "prometheus"]
-# Enable WebUI server with real-time streaming
+# Enable WebUI server with real-time streaming.
+# The `web` feature also enables the audit subsystem (query logging + security
+# events via the event bus) automatically — no separate configuration needed.
 web = [
     "axum",
     "axum/ws",
-    "audit",
+    "time/formatting",
+    "time/local-offset",
+    "time/macros",
     "tokio/sync",
     "tower",
     "tower-http",

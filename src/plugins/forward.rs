@@ -1031,7 +1031,7 @@ impl ForwardPlugin {
                         e
                     );
 
-                    #[cfg(feature = "audit")]
+                    #[cfg(feature = "web")]
                     // Log upstream failure or query timeout event
                     if let Some(q) = request.questions().first() {
                         let qname = q.qname().to_string();

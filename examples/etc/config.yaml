@@ -285,103 +285,12 @@ plugins:
   #     lazycache_threshold: 0.05
 
   # ========================================================================
-  # Audit Plugin - Query Logging and Security Events
+  # Audit / Query Logging
   # ========================================================================
-  # Global buffer and rotation settings apply to both query_log and security_events
-  # unless overridden at the individual log level.
-
-  - tag: audit
-    type: audit
-    args:
-      # Enable audit logging globally (default: false)
-      enabled: true
-
-      # Enable writing logs to filesystem (default: true)
-      # When false: only event bus publishing is active (WebUI displays real-time data)
-      # When true: both filesystem writes AND event bus publishing are active
-      # Note: Disabling file writes does NOT affect WebUI audit display (event bus is independent)
-      log_to_file: false
-
-      # Global log buffer size before flush (applies to both logs, default: 100)
-      # Flush to disk after this many entries (trade-off between memory and I/O)
-      buffer_size: 100
-
-      # Global maximum file size before rotation (default: 100MB)
-      # Supports human-readable sizes: 100K, 10M, 1G, etc.
-      max_file_size: 100M
-
-      # Global number of rotated files to keep (default: 10)
-      # Older files are deleted when count exceeds this limit
-      max_files: 10
-
-      # Query logging configuration
-      query_log:
-        # Log file path - relative to the working directory when lazydns starts
-        # When running with "-d examples/etc/", paths are relative to examples/etc/
-        path: log/lazydns/queries.log
-
-        # Output format: "json" or "text" (default: json)
-        format: json
-
-        # Sampling rate (0.0 to 1.0): fraction of queries to log (default: 1.0)
-        # Use 0.1 to log 10% of queries, reducing I/O overhead on high-traffic servers
-        sampling_rate: 1.0
-
-        # Include response details in log entries (default: true)
-        include_response: true
-
-        # Include client IP in log entries (default: true)
-        include_client_ip: true
-
-        # Exclude DNS-SD discovery queries (default: true)
-        # Filters out queries matching _dns-sd._udp patterns to reduce noise
-        # DNS-SD queries are typically internal discovery queries (e.g., b._dns-sd._udp.*.in-addr.arpa)
-        # Set to false to log all queries including DNS-SD discovery
-        exclude_dns_sd: true
-
-        # Optional: Override global log_to_file setting for this log only
-        # log_to_file: true
-
-        # Optional: Override global buffer_size for this log only
-        # buffer_size: 50
-
-        # Optional: Override global max_file_size for this log only
-        # max_file_size: 50M
-
-        # Optional: Override global max_files for this log only
-        # max_files: 5
-
-      # Security event logging configuration
-      security_events:
-        # Enable security event logging (default: true when present)
-        enabled: true
-
-        # Log file path - relative to working directory
-        path: log/lazydns/security.log
-
-        # Events to track (empty list = log all events)
-        events:
-          - rate_limit_exceeded # Client exceeded query rate limit
-          - blocked_domain_query # Query for a blocked domain
-          - upstream_failure # Upstream DNS server failed
-          - acl_denied # Query denied by ACL rules
-          - malformed_query # Malformed DNS query
-          - query_timeout # Query timeout occurred
-
-        # Include full query details in security event logs (default: true)
-        include_query_details: true
-
-        # Optional: Override global log_to_file setting for this log only
-        # log_to_file: true
-
-        # Optional: Override global buffer_size for security events only
-        # buffer_size: 50
-
-        # Optional: Override global max_file_size for security events only
-        # max_file_size: 50M
-
-        # Optional: Override global max_files for security events only
-        # max_files: 5
+  # NOTE: Audit logging (query logs + security events) is now automatic when
+  # the `web` feature is enabled — no plugin configuration needed. Data is
+  # published to the internal event bus and consumed by the WebUI real-time
+  # streams and the alert engine.
 
   # redirect plugin for specific domains
   - tag: redirect

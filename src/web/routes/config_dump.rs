@@ -302,8 +302,7 @@ mod tests {
 
     #[test]
     fn test_summarize_sequence_plugin_marks_is_sequence() {
-        let mut cfg = PluginConfig::new("sequence".to_string())
-            .with_tag("main".to_string());
+        let mut cfg = PluginConfig::new("sequence".to_string()).with_tag("main".to_string());
         cfg = cfg.with_arg(
             "steps".to_string(),
             serde_yaml::from_str("- exec: accept").unwrap(),

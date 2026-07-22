@@ -310,7 +310,7 @@ async fn handle_result(result: ValidationResult, qname: &str, ctx: &mut Context)
         ValidationResult::Blacklisted => {
             warn!("Rejected blacklisted domain: {}", qname);
 
-            #[cfg(feature = "audit")]
+            #[cfg(feature = "web")]
             crate::plugins::AUDIT_LOGGER
                 .log_security_event(
                     crate::plugins::SecurityEventType::BlockedDomainQuery,
@@ -326,7 +326,7 @@ async fn handle_result(result: ValidationResult, qname: &str, ctx: &mut Context)
         ValidationResult::InvalidChars => {
             debug!("Rejected domain with invalid characters: {}", qname);
 
-            #[cfg(feature = "audit")]
+            #[cfg(feature = "web")]
             crate::plugins::AUDIT_LOGGER
                 .log_security_event(
                     crate::plugins::SecurityEventType::MalformedQuery,
@@ -342,7 +342,7 @@ async fn handle_result(result: ValidationResult, qname: &str, ctx: &mut Context)
         ValidationResult::InvalidLength => {
             debug!("Rejected domain with invalid length: {}", qname);
 
-            #[cfg(feature = "audit")]
+            #[cfg(feature = "web")]
             crate::plugins::AUDIT_LOGGER
                 .log_security_event(
                     crate::plugins::SecurityEventType::MalformedQuery,
@@ -358,7 +358,7 @@ async fn handle_result(result: ValidationResult, qname: &str, ctx: &mut Context)
         ValidationResult::InvalidFormat => {
             debug!("Rejected domain with invalid format: {}", qname);
 
-            #[cfg(feature = "audit")]
+            #[cfg(feature = "web")]
             crate::plugins::AUDIT_LOGGER
                 .log_security_event(
                     crate::plugins::SecurityEventType::MalformedQuery,
