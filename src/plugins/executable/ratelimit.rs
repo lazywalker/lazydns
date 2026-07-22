@@ -182,7 +182,7 @@ impl Plugin for RateLimitPlugin {
         if self.should_limit(client_ip) {
             warn!("Rate limit exceeded for IP: {}", client_ip);
 
-            #[cfg(feature = "audit")]
+            #[cfg(feature = "web")]
             // Log security event
             crate::plugins::AUDIT_LOGGER
                 .log_security_event(
@@ -212,11 +212,6 @@ impl Plugin for RateLimitPlugin {
 
     fn name(&self) -> &str {
         "rate_limit"
-    }
-
-    fn priority(&self) -> i32 {
-        // Should run early to block excessive requests
-        1000
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -406,8 +401,6 @@ mod builder_init_tests {
             tag: None,
             plugin_type: "rate_limit".to_string(),
             args: Value::Mapping(args_map),
-            priority: 100,
-            config: std::collections::HashMap::new(),
         };
 
         let plugin = RateLimitPlugin::init(&cfg).expect("init");

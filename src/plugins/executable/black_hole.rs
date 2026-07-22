@@ -110,7 +110,7 @@ impl Plugin for BlackholePlugin {
             .make_response_for_a(req)
             .or_else(|| self.make_response_for_aaaa(req))
         {
-            #[cfg(feature = "audit")]
+            #[cfg(feature = "web")]
             // Log blocked domain query event
             if let Some(q) = req.questions().first() {
                 let qname = q.qname().to_string();

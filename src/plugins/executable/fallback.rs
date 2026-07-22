@@ -209,10 +209,6 @@ impl Plugin for FallbackPlugin {
         Ok(())
     }
 
-    fn priority(&self) -> i32 {
-        100
-    }
-
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

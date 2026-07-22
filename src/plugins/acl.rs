@@ -162,7 +162,7 @@ impl Plugin for QueryAclPlugin {
             AclAction::Deny => {
                 warn!("ACL: Denied query from {}", client_ip);
 
-                #[cfg(feature = "audit")]
+                #[cfg(feature = "web")]
                 // Log ACL denied security event
                 if let Some(q) = ctx.request().questions().first() {
                     let qname = q.qname().to_string();
@@ -191,11 +191,6 @@ impl Plugin for QueryAclPlugin {
 
     fn name(&self) -> &str {
         "query_acl"
-    }
-
-    fn priority(&self) -> i32 {
-        // Should run very early, before rate limiting
-        2000
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -449,8 +444,6 @@ mod tests {
             tag: Some("test_acl".to_string()),
             plugin_type: "query_acl".to_string(),
             args: Value::Mapping(args),
-            priority: 100,
-            config: std::collections::HashMap::new(),
         };
 
         let plugin = QueryAclPlugin::init(&config).unwrap();
@@ -494,8 +487,6 @@ mod tests {
             tag: Some("test_acl".to_string()),
             plugin_type: "query_acl".to_string(),
             args: Value::Mapping(args),
-            priority: 100,
-            config: std::collections::HashMap::new(),
         };
 
         let plugin = QueryAclPlugin::init(&config).unwrap();

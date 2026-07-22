@@ -388,10 +388,6 @@ impl Plugin for HostsPlugin {
         "hosts"
     }
 
-    fn priority(&self) -> i32 {
-        100
-    }
-
     fn init(config: &PluginConfig) -> Result<Arc<dyn Plugin>> {
         let args = config.effective_args();
         use serde_yaml::Value;

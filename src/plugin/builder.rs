@@ -506,15 +506,14 @@ mod tests {
     #[test]
     fn test_build_cache_plugin() {
         let mut builder = PluginBuilder::new();
-        let mut config_map = HashMap::new();
-        config_map.insert("size".to_string(), Value::Number(2048.into()));
+
+        let mut args_map = Mapping::new();
+        args_map.insert(Value::String("size".into()), Value::Number(2048.into()));
 
         let config = PluginConfig {
             tag: Some("my_cache".to_string()),
             plugin_type: "cache".to_string(),
-            args: Value::Mapping(Mapping::new()),
-            priority: 100,
-            config: config_map,
+            args: Value::Mapping(args_map),
         };
 
         let plugin = builder.build(&config).unwrap();
@@ -524,20 +523,21 @@ mod tests {
     #[test]
     fn test_build_forward_plugin() {
         let mut builder = PluginBuilder::new();
-        let mut config_map = HashMap::new();
 
         let upstreams = vec![
             Value::String("udp://8.8.8.8:53".to_string()),
             Value::String("tcp://1.1.1.1:53".to_string()),
         ];
-        config_map.insert("upstreams".to_string(), Value::Sequence(upstreams));
+        let mut args_map = Mapping::new();
+        args_map.insert(
+            Value::String("upstreams".into()),
+            Value::Sequence(upstreams),
+        );
 
         let config = PluginConfig {
             tag: None,
             plugin_type: "forward".to_string(),
-            args: Value::Mapping(Mapping::new()),
-            priority: 100,
-            config: config_map,
+            args: Value::Mapping(args_map),
         };
 
         let plugin = builder.build(&config).unwrap();
@@ -547,17 +547,18 @@ mod tests {
     #[test]
     fn test_build_forward_plugin_with_default_port() {
         let mut builder = PluginBuilder::new();
-        let mut config_map = HashMap::new();
 
         let upstreams = vec![Value::String("udp://119.29.29.29".to_string())];
-        config_map.insert("upstreams".to_string(), Value::Sequence(upstreams));
+        let mut args_map = Mapping::new();
+        args_map.insert(
+            Value::String("upstreams".into()),
+            Value::Sequence(upstreams),
+        );
 
         let config = PluginConfig {
             tag: None,
             plugin_type: "forward".to_string(),
-            args: Value::Mapping(Mapping::new()),
-            priority: 100,
-            config: config_map,
+            args: Value::Mapping(args_map),
         };
 
         let plugin = builder.build(&config).unwrap();
@@ -957,8 +958,6 @@ mod tests {
             tag: Some("redirect_str".to_string()),
             plugin_type: "redirect".to_string(),
             args: Value::Mapping(args_map),
-            priority: 100,
-            config: HashMap::new(),
         };
 
         let plugin = builder.build(&config).expect("build redirect plugin");
@@ -1005,8 +1004,6 @@ mod tests {
             tag: Some("redirect_map".to_string()),
             plugin_type: "redirect".to_string(),
             args: Value::Mapping(args_map),
-            priority: 100,
-            config: HashMap::new(),
         };
 
         let plugin = builder.build(&config).expect("build redirect plugin");
@@ -1042,8 +1039,6 @@ mod tests {
             tag: Some("redirect_upper".to_string()),
             plugin_type: "Redirect".to_string(),
             args: Value::Mapping(args_map),
-            priority: 100,
-            config: HashMap::new(),
         };
 
         let plugin = builder.build(&config).expect("build redirect plugin");
@@ -1071,15 +1066,11 @@ mod tests {
             tag: None,
             plugin_type: "accept".to_string(),
             args: Value::Mapping(Mapping::new()),
-            priority: 100,
-            config: HashMap::new(),
         };
         let secondary_cfg = PluginConfig {
             tag: None,
             plugin_type: "accept".to_string(),
             args: Value::Mapping(Mapping::new()),
-            priority: 100,
-            config: HashMap::new(),
         };
 
         // Create fallback config referencing the above by name
@@ -1097,8 +1088,6 @@ mod tests {
             tag: None,
             plugin_type: "fallback".to_string(),
             args: Value::Mapping(args_map),
-            priority: 100,
-            config: HashMap::new(),
         };
 
         builder.build(&fb_cfg).unwrap();

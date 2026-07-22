@@ -236,11 +236,6 @@ impl Plugin for GeoIpPlugin {
         "geo_ip"
     }
 
-    fn priority(&self) -> i32 {
-        // Run after response is set but before routing decisions
-        -20
-    }
-
     fn init(config: &PluginConfig) -> Result<Arc<dyn Plugin>, Error> {
         use serde_yaml::Value;
 

@@ -6,16 +6,13 @@
 #
 # The domain_validator plugin validates domain names in DNS queries according to RFC 1035/1123.
 # Invalid domains are rejected early, reducing upstream load and improving server robustness.
-# It includes LRU caching for performance and optional blacklisting of specific domains.
+# It includes LRU caching for performance.
 #
 # Configuration options:
+#   - strict_mode: Reject domains with consecutive hyphens (default: true)
 #   - cache_size: Maximum number of domains to cache validation results (integer, default: 1000)
-#   - blacklist: List of domain patterns to reject (array of strings, optional)
 #
-# Examples:
-#   - Default caching with no blacklist
-#   - Custom cache size with domain blacklisting
-#   - Integration with other plugins in sequences
+# Note: For domain blacklisting/blocking, use the domain_set + black_hole plugins instead.
 
 # Log configuration
 log:
@@ -24,21 +21,18 @@ log:
 
 # Plugin execution flow
 plugins:
-  # Domain validator with default settings (cache_size: 1000, no blacklist)
+  # Domain validator with default settings (cache_size: 1000)
   - tag: domain_validator_default
     type: domain_validator
     args:
       cache_size: 1000
 
-  # Domain validator with custom cache size and blacklist
-  - tag: domain_validator_custom
+  # Domain validator with custom cache size and lenient mode
+  - tag: domain_validator_lenient
     type: domain_validator
     args:
       cache_size: 500
-      blacklist:
-        - "malicious.example.com"
-        - "*.blocked.org"
-        - "test.invalid"
+      strict_mode: false
 
   # Forward to upstream DNS servers
   - tag: forward
@@ -65,11 +59,11 @@ plugins:
       - exec: $test_response
       - exec: accept
 
-  # Sequence with custom validation and blacklisting
-  - tag: custom_validation_sequence
+  # Sequence with lenient validation
+  - tag: lenient_validation_sequence
     type: sequence
     args:
-      - exec: $domain_validator_custom
+      - exec: $domain_validator_lenient
       - exec: $test_response
       - exec: accept
 
@@ -80,11 +74,11 @@ plugins:
       entry: main_sequence_with_validation
       listen: ":5354"
 
-  # UDP server with custom validation
-  - tag: udp_server_custom
+  # UDP server with lenient validation
+  - tag: udp_server_lenient
     type: udp_server
     args:
-      entry: custom_validation_sequence
+      entry: lenient_validation_sequence
       listen: ":5355"
 
   # TCP server with default domain validation
@@ -94,9 +88,9 @@ plugins:
       entry: main_sequence_with_validation
       listen: ":5354"
 
-  # TCP server with custom validation
-  - tag: tcp_server_custom
+  # TCP server with lenient validation
+  - tag: tcp_server_lenient
     type: tcp_server
     args:
-      entry: custom_validation_sequence
+      entry: lenient_validation_sequence
       listen: ":5355"

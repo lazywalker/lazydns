@@ -163,19 +163,12 @@ impl RequestHandler for PluginHandler {
             }
         }
 
-        // 3. Automatically execute audit plugin for query logging and security events
-        // This runs after the main sequence completes, ensuring all query details are available
-        #[cfg(feature = "audit")]
-        {
-            for name in self.registry.plugin_names() {
-                if let Some(p) = self.registry.get(&name)
-                    && p.name() == "audit"
-                    && let Err(e) = p.execute(&mut ctx).await
-                {
-                    warn!("Error during audit post-processing: {}", e);
-                }
-            }
-        }
+        // 3. Automatically publish query log to the event bus (WebUI / alert
+        // engine consume from there). Compiled with the `web` feature; no user
+        // configuration required. Runs after the sequence so all response
+        // details are available.
+        #[cfg(feature = "web")]
+        crate::plugins::audit::log_query_for_context(&ctx);
 
         // Ensure any response uses the original request ID
         let req_id = ctx.request().id();

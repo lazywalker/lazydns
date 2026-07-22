@@ -284,11 +284,6 @@ impl Plugin for GeoSitePlugin {
         "geo_site"
     }
 
-    fn priority(&self) -> i32 {
-        // Run early to tag requests
-        70
-    }
-
     fn init(
         config: &crate::config::types::PluginConfig,
     ) -> Result<std::sync::Arc<dyn Plugin>, Error> {

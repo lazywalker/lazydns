@@ -43,7 +43,7 @@ Accepted prefixes for exec quick-setup: `blackhole`, `black_hole`, `sinkhole`, `
 
 ## Audit Integration
 
-When matching a query and returning a response, this plugin will trigger a `blocked_domain_query` security event if the `audit` feature is enabled.
+When matching a query and returning a response, this plugin will trigger a `blocked_domain_query` security event (published automatically when the `web` feature is enabled).
 
 ## Aliases
 

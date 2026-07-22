@@ -1031,7 +1031,7 @@ impl ForwardPlugin {
                         e
                     );
 
-                    #[cfg(feature = "audit")]
+                    #[cfg(feature = "web")]
                     // Log upstream failure or query timeout event
                     if let Some(q) = request.questions().first() {
                         let qname = q.qname().to_string();
@@ -1187,10 +1187,6 @@ impl Plugin for ForwardPlugin {
 
     fn tag(&self) -> Option<&str> {
         self.tag.as_deref()
-    }
-
-    fn priority(&self) -> i32 {
-        100 // Default priority
     }
 
     fn as_any(&self) -> &dyn Any {

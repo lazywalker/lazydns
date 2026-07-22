@@ -124,8 +124,6 @@ plugins:
     args:
       primary: local_sequence
       secondary: remote_sequence
-      threshold: 500
-      always_standby: true
 
   # gfwlist解析出的ip添加至ipset，添加前先判断是否为国内ip或内网ip
   - tag: gfw-list

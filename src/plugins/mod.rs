@@ -30,7 +30,7 @@
 //! ```
 
 pub mod acl;
-#[cfg(feature = "audit")]
+#[cfg(feature = "web")]
 pub mod audit;
 pub mod cache;
 #[cfg(feature = "cron")]
@@ -46,11 +46,8 @@ pub mod geosite;
 
 // Re-export plugins
 pub use acl::{AclAction, QueryAclPlugin};
-#[cfg(feature = "audit")]
-pub use audit::{
-    AUDIT_LOGGER, AuditConfig, AuditEvent, AuditLogger, AuditPlugin, QueryLogConfig, QueryLogEntry,
-    SecurityEventConfig, SecurityEventType,
-};
+#[cfg(feature = "web")]
+pub use audit::{AUDIT_LOGGER, AuditEvent, AuditLogger, QueryLogEntry, SecurityEventType};
 pub use cache::CachePlugin;
 pub use dataset::{ArbitraryPlugin, DomainSetPlugin, HostsPlugin, IpSetPlugin};
 pub use flow::{

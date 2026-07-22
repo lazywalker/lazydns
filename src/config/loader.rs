@@ -533,7 +533,6 @@ log:
       period: daily
 plugins:
   - plugin_type: forward
-    priority: 100
 "#;
         let config = load_from_yaml(yaml).unwrap();
         assert_eq!(config.log.level, "info");
