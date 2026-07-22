@@ -632,20 +632,32 @@ impl CachePlugin {
             // Normalize domain name to lowercase for case-insensitive matching
             let qname_lower = q.qname().to_lowercase();
 
-            // Build key with EDNS0 considerations
-            // Like mosdns, include AD, CD, DO flags in the key for proper caching
-            let key = format!(
-                "{}:{}:{}",
+            // Pack DNSSEC-relevant flags into a single byte so that queries
+            // with different DNSSEC expectations are cached separately.
+            // This prevents, e.g., serving a DNSSEC-enabled response (with
+            // RRSIG records) to a client that did not request DNSSEC.
+            //
+            // RFC 6840 §5.7 (AD), RFC 4035 (CD), RFC 6891 §6.1.3 (DO).
+            let mut flags = 0u8;
+            if message.authentic_data() {
+                flags |= 1;
+            }
+            if message.checking_disabled() {
+                flags |= 2;
+            }
+            if message.additional().iter().any(|rr| {
+                matches!(rr.rdata(), crate::dns::RData::OPT { flags, .. } if (*flags & 0x8000) != 0)
+            }) {
+                flags |= 4;
+            }
+
+            format!(
+                "{}:{}:{}:{}",
                 qname_lower,
                 q.qtype().to_u16(),
-                q.qclass().to_u16()
-            );
-
-            // TODO: Add EDNS0 flags if message has EDNS0
-            // This would ensure DNSSEC queries are cached separately from non-DNSSEC
-            // Currently, we focus on the main fix: domain name normalization
-
-            key
+                q.qclass().to_u16(),
+                flags
+            )
         })
     }
 
@@ -1351,7 +1363,7 @@ mod tests {
         let key = CachePlugin::make_key(&msg);
 
         assert!(key.is_some());
-        assert_eq!(key.unwrap(), "example.com:1:1");
+        assert_eq!(key.unwrap(), "example.com:1:1:0");
     }
 
     #[test]
@@ -1372,7 +1384,7 @@ mod tests {
         let key_lower_str = key_lower.unwrap();
         let key_upper_str = key_upper.unwrap();
         assert_eq!(key_lower_str, key_upper_str);
-        assert_eq!(key_lower_str, "example.com:1:1");
+        assert_eq!(key_lower_str, "example.com:1:1:0");
     }
 
     #[test]
@@ -1381,6 +1393,47 @@ mod tests {
         let key = CachePlugin::make_key(&msg);
 
         assert!(key.is_none());
+    }
+
+    #[test]
+    fn test_make_key_dnssec_flags_separate_keys() {
+        // Base query (no DNSSEC): flags = 0
+        let mut msg = Message::new();
+        msg.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+        let key_plain = CachePlugin::make_key(&msg).unwrap();
+        assert!(key_plain.ends_with(":0"));
+
+        // AD bit set: flags = 1
+        let mut msg_ad = msg.clone();
+        msg_ad.set_authentic_data(true);
+        let key_ad = CachePlugin::make_key(&msg_ad).unwrap();
+        assert!(key_ad.ends_with(":1"));
+        assert_ne!(key_plain, key_ad);
+
+        // CD bit set: flags = 2
+        let mut msg_cd = msg.clone();
+        msg_cd.set_checking_disabled(true);
+        let key_cd = CachePlugin::make_key(&msg_cd).unwrap();
+        assert!(key_cd.ends_with(":2"));
+        assert_ne!(key_plain, key_cd);
+
+        // DO bit set via OPT record: flags = 4
+        let mut msg_do = msg.clone();
+        msg_do.add_additional(ResourceRecord::new(
+            "",
+            RecordType::OPT,
+            RecordClass::IN,
+            0,
+            crate::dns::RData::OPT {
+                extended_rcode: 0,
+                version: 0,
+                flags: 0x8000, // DO bit
+                options: Vec::new(),
+            },
+        ));
+        let key_do = CachePlugin::make_key(&msg_do).unwrap();
+        assert!(key_do.ends_with(":4"));
+        assert_ne!(key_plain, key_do);
     }
 
     #[test]
@@ -1425,7 +1478,7 @@ mod tests {
 
         // Store an entry in the cache via store() so metric is updated
         let response = create_test_response();
-        let key = "example.com:1:1".to_string();
+        let key = "example.com:1:1:0".to_string();
         let entry = CacheEntry::new(response.clone(), 300, 300);
         cache.store(key.clone(), entry);
 
@@ -1453,7 +1506,7 @@ mod tests {
 
         // Store an entry with 0 TTL (immediately expired)
         let response = create_test_response();
-        let key = "example.com:1:1".to_string();
+        let key = "example.com:1:1:0".to_string();
         let entry = CacheEntry::new(response.clone(), 0, 0);
         cache.cache.write().push(key.clone(), entry);
 
@@ -1584,7 +1637,7 @@ plugins:
         let cache_entry = cache
             .cache
             .read()
-            .peek(&"example.com:1:1".to_string())
+            .peek(&"example.com:1:1:0".to_string())
             .expect("entry exists")
             .clone();
         let ttl_percent = cache_entry.remaining_ttl() as f32 / cache_entry.ttl as f32;

@@ -88,6 +88,8 @@ fn convert_from_hickory(hickory_msg: hickory_proto::op::Message) -> Result<Messa
     message.set_truncated(hickory_msg.truncated());
     message.set_recursion_desired(hickory_msg.recursion_desired());
     message.set_recursion_available(hickory_msg.recursion_available());
+    message.set_authentic_data(hickory_msg.authentic_data());
+    message.set_checking_disabled(hickory_msg.checking_disabled());
 
     // Convert opcode
     let opcode = match hickory_msg.op_code() {
@@ -225,6 +227,8 @@ fn convert_to_hickory(message: &Message) -> Result<hickory_proto::op::Message> {
     hickory_msg.set_truncated(message.is_truncated());
     hickory_msg.set_recursion_desired(message.recursion_desired());
     hickory_msg.set_recursion_available(message.recursion_available());
+    hickory_msg.set_authentic_data(message.authentic_data());
+    hickory_msg.set_checking_disabled(message.checking_disabled());
 
     // Convert opcode
     let opcode = match message.opcode() {

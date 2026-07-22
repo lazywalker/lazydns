@@ -45,6 +45,10 @@ pub struct Message {
     rd: bool,
     /// Recursion available flag
     ra: bool,
+    /// Authenticated Data flag (RFC 6840 §5.7)
+    ad: bool,
+    /// Checking Disabled flag (RFC 4035)
+    cd: bool,
     /// Response code
     rcode: ResponseCode,
 
@@ -73,6 +77,8 @@ impl Message {
             tc: false,
             rd: true,
             ra: false,
+            ad: false,
+            cd: false,
             rcode: ResponseCode::NoError,
             questions: Vec::new(),
             answers: Vec::new(),
@@ -154,6 +160,26 @@ impl Message {
     /// Set the recursion available flag
     pub fn set_recursion_available(&mut self, ra: bool) {
         self.ra = ra;
+    }
+
+    /// Check if the Authenticated Data flag is set (RFC 6840 §5.7)
+    pub fn authentic_data(&self) -> bool {
+        self.ad
+    }
+
+    /// Set the Authenticated Data flag
+    pub fn set_authentic_data(&mut self, ad: bool) {
+        self.ad = ad;
+    }
+
+    /// Check if the Checking Disabled flag is set (RFC 4035)
+    pub fn checking_disabled(&self) -> bool {
+        self.cd
+    }
+
+    /// Set the Checking Disabled flag
+    pub fn set_checking_disabled(&mut self, cd: bool) {
+        self.cd = cd;
     }
 
     /// Get the response code
