@@ -49,6 +49,7 @@ check: lint fmt
 
 doc:
 	cargo doc --no-deps --package lazydns
+	cargo doc --no-deps --all-features
 
 # Mapping helper target(s)
 .PHONY: build-for build-all
