@@ -4,7 +4,7 @@
 
  ## Exec quick-setup
 
- - Quick: `prefer_ipv6` — use as `exec: prefer_ipv6` to strip A records from the current response.
+ - Quick: `prefer_ipv6` (use as `exec: prefer_ipv6` to strip A records from the current response).
 
  ## Args
 

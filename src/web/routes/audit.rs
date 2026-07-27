@@ -22,7 +22,6 @@ pub async fn query_logs_stream(
     let sse_counter = state.sse_connections();
 
     let stream = async_stream::stream! {
-        // Increment active SSE connections
         sse_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         debug!("SSE connection established for query logs");
 
@@ -79,7 +78,6 @@ pub async fn query_logs_stream(
             }
         }
 
-        // Decrement active SSE connections when stream closes
         sse_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         debug!("SSE connection closed for query logs");
     };
@@ -101,7 +99,6 @@ pub async fn security_events_stream(
     let sse_counter = state.sse_connections();
 
     let stream = async_stream::stream! {
-        // Increment active SSE connections
         sse_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         debug!("SSE connection established for security events");
 
@@ -158,7 +155,6 @@ pub async fn security_events_stream(
             }
         }
 
-        // Decrement active SSE connections when stream closes
         sse_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         debug!("SSE connection closed for security events");
     };

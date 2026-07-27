@@ -71,13 +71,13 @@ plugins:
 
 ## Behavior and lifecycle
 
-- The `cron` plugin does not run per-DNS-request (`should_execute` returns false) — it runs jobs in background tasks.
+- The `cron` plugin does not run per-DNS-request (`should_execute` returns false); it runs jobs in background tasks.
 - On server shutdown the plugin signals jobs to stop and awaits job tasks to finish.
 - `invoke_plugin` actions construct a temporary plugin instance using the project's plugin factory and execute it with a fresh `Context` and an empty `Message`.
 
 ## Logging & troubleshooting
 
-- Logs include job names and action types (e.g., `Cron job triggered, executing action`).
+- Logs include job names and action types (such as `Cron job triggered, executing action`).
 - If an `http` action fails, the error is logged but other jobs continue running.
 - If you rely on a timezone-specific schedule, ensure the server's machine timezone is set as expected; the plugin will warn if `timezone` was set in the config because it is ignored.
 

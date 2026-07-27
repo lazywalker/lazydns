@@ -186,7 +186,7 @@ pub enum RData {
         extended_rcode: u8,
         /// EDNS version
         version: u8,
-        /// EDNS flags (DO bit, etc.)
+        /// EDNS flags (DO bit, and others)
         flags: u16,
         /// EDNS options as raw bytes
         options: Vec<u8>,

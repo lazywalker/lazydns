@@ -31,7 +31,7 @@ use crate::server::TlsConfig;
 /// listen addresses for UDP/TCP, request timeouts, and protocol-specific
 /// size limits.
 ///
-/// Use the builder-style methods (e.g. `with_udp_addr`) to customize a
+/// Use the builder-style methods (such as `with_udp_addr`) to customize a
 /// configuration built from `ServerConfig::default()`.
 #[derive(Clone)]
 pub struct ServerConfig {

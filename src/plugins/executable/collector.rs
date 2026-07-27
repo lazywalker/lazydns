@@ -122,7 +122,6 @@ impl MetricsCollectorPlugin {
 #[async_trait]
 impl Plugin for MetricsCollectorPlugin {
     async fn execute(&self, ctx: &mut Context) -> Result<()> {
-        // Increment query counter
         self.counter.fetch_add(1, Ordering::SeqCst);
 
         // Track latency if available from metadata
@@ -291,7 +290,6 @@ impl PromMetricsCollectorPlugin {
 #[async_trait]
 impl Plugin for PromMetricsCollectorPlugin {
     async fn execute(&self, ctx: &mut Context) -> Result<()> {
-        // Increment query counter
         self.query_total.inc();
 
         // Track response latency if available

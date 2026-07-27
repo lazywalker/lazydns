@@ -167,7 +167,7 @@ admin = ["axum"]
 metrics = ["axum", "prometheus"]
 # Enable WebUI server with real-time streaming.
 # The `web` feature also enables the audit subsystem (query logging + security
-# events via the event bus) automatically — no separate configuration needed.
+# events via the event bus) automatically; no separate configuration needed.
 web = [
     "axum",
     "axum/ws",

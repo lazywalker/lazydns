@@ -8,9 +8,9 @@ feature enabled, every DNS query and security-relevant event (rate-limit
 violations, blocked domains, upstream failures, ACL denials, malformed queries,
 timeouts) is published to an internal event bus in real time.
 
-- **No configuration needed** — audit is no longer a plugin you add to your
+- **No configuration needed**: audit is no longer a plugin you add to your
   sequence.
-- **No file output** — data flows through the event bus to the WebUI real-time
+- **No file output**: data flows through the event bus to the WebUI real-time
   streams and the alert engine. Use the regular lazydns log (`log.file` in your
   config) for persistent program-level logs.
 - **Consumers**: the WebUI "Logs" page (SSE streams) and the alert engine
@@ -79,7 +79,7 @@ Published by individual plugins when triggered:
 
 Previously, audit was a user-configured plugin (`type: audit`) with extensive
 options for file output, rotation, buffer sizes, sampling, and per-log
-overrides. This has been simplified — audit is now an internal data source for
+overrides. This has been simplified; audit is now an internal data source for
 the WebUI, with file output removed entirely. If you need structured query logs
-for external consumption (e.g. SIEM/ELK), subscribe to the WebUI SSE streams or
+for external consumption (such as SIEM/ELK), subscribe to the WebUI SSE streams or
 add a custom consumer of the event bus.

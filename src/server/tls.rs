@@ -464,9 +464,6 @@ mod tests {
         }
     }
 
-    // Note: build_server_config testing requires proper crypto provider setup
-    // which is complex in unit tests. Integration tests should cover this functionality.
-
     #[test]
     fn test_tls_config_from_files_with_valid_paths() {
         // Test that from_files accepts different path types

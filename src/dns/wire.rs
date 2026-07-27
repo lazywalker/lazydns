@@ -1096,8 +1096,7 @@ mod tests {
         let parsed = parse_message(&wire_data).unwrap();
 
         assert_eq!(parsed.question_count(), 1);
-        // Note: hickory-proto may normalize some classes; we just verify roundtrip succeeds
-        // The class may be preserved as CH or may be normalized
+        // hickory-proto may normalize the class, so only check roundtrip succeeds
         let qclass = parsed.questions()[0].qclass();
         assert!(
             qclass == RecordClass::CH || qclass == RecordClass::IN,

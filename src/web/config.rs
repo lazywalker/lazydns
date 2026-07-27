@@ -133,7 +133,7 @@ pub struct MetricsConfig {
     #[serde(default = "default_metrics_window_secs")]
     pub window_secs: u64,
 
-    /// Number of top items to track (domains, clients, etc.)
+    /// Number of top items to track (domains, clients, and others)
     #[serde(default = "default_top_n")]
     pub top_n: usize,
 

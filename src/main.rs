@@ -146,7 +146,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Loaded {} plugins", plugin_count);
 
-    // Resolve inter-plugin references (e.g., fallback primary/secondary plugin names)
+    // Resolve inter-plugin references (such as fallback primary/secondary plugin names)
     if let Err(e) = builder.resolve_references(&config.plugins) {
         error!("Failed to resolve plugin references: {}", e);
     }

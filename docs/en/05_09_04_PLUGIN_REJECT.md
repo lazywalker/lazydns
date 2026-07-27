@@ -15,7 +15,7 @@
 	- `nxdomain` or `nx`
 	- `refused` or `ref`
 	- `servfail` or `serv`
-	- a numeric DNS RCODE (e.g., `2`, `3`, `5`)
+	- a numeric DNS RCODE (such as `2`, `3`, `5`)
 
 ## Behavior
 
@@ -29,7 +29,7 @@
 ## When to use
 
 - Immediately return a DNS error to the client without forwarding to upstream servers.
-- Implement policy-based denials (e.g., block certain queries, refuse TCP/UDP upgrades, or deliberately return SERVFAIL for testing).
+- Implement policy-based denials (such as blocking certain queries, refusing TCP/UDP upgrades, or deliberately returning SERVFAIL for testing).
 
 ## Examples
 

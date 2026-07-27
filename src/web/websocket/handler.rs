@@ -67,7 +67,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<WebState>) {
     let timeout_secs = state.config().websocket.timeout_secs;
     let ws_counter = state.ws_connections();
 
-    // Increment active WebSocket connections
     ws_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     info!("New WebSocket connection for metrics");
 
@@ -196,7 +195,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<WebState>) {
         }
     }
 
-    // Decrement active WebSocket connections when connection closes
     ws_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     info!("WebSocket connection closed");
 }

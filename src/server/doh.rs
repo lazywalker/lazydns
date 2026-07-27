@@ -1,6 +1,6 @@
 //! DNS over HTTPS (DoH) server implementation
 //!
-//! Implements RFC 8484 — DNS Queries over HTTPS (DoH).
+//! Implements RFC 8484 (DNS Queries over HTTPS).
 //!
 //! This module provides a minimal DoH server implementation suitable for
 //! embedding into the test-suite and simple deployments. It supports the
@@ -99,12 +99,10 @@ impl DohServer {
         self
     }
 
-    /// Start the DoH server
+    /// Start the DoH server.
     ///
     /// Listens for HTTPS connections and processes DNS queries over HTTP/2.
-    ///
-    /// Note: This is a simplified implementation using axum-server.
-    /// For production use, consider using a full-featured HTTPS server.
+    /// Uses axum-server; not tuned for high-throughput production frontends.
     pub async fn run(self) -> Result<()> {
         let handler = Arc::clone(&self.handler);
 
@@ -328,7 +326,6 @@ async fn handle_get_query(
     debug!("DoH GET handler processed query successfully");
     trace!("Sending DoH response: {} bytes", response_data.len());
 
-    // Return DNS response with proper content type
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/dns-message")],
@@ -436,7 +433,6 @@ async fn handle_post_query(
         }
     };
 
-    // Return DNS response
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/dns-message")],
@@ -677,7 +673,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handler_error_get_and_post_return_internal() {
+    async fn handler_error_get_post_internal() {
         // GET
         let mut req = Message::new();
         req.set_id(0x77);

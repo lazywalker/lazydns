@@ -11,10 +11,10 @@ The `domain_set` plugin provides a flexible domain-matching dataset that other p
 
 The plugin supports four match types. Evaluation priority is: **Full > Domain > Regexp > Keyword**.
 
-- `full` — exact case-insensitive match (e.g., `full:example.com`). Does not match subdomains.
-- `domain` — domain and all subdomains (e.g., `domain:example.com` matches `example.com` and `www.example.com`). This is the default match type.
-- `regexp` — regular expression match (Rust `regex` syntax). Patterns are compiled and evaluated in import order.
-- `keyword` — substring match (case-insensitive). Rules evaluated in import order.
+- `full`: exact case-insensitive match (such as `full:example.com`). Does not match subdomains.
+- `domain`: domain and all subdomains (such as `domain:example.com` matching `example.com` and `www.example.com`). This is the default match type.
+- `regexp`: regular expression match (Rust `regex` syntax). Patterns are compiled and evaluated in import order.
+- `keyword`: substring match (case-insensitive). Rules evaluated in import order.
 
 When multiple domain rules could match, the priority and domain specificity rules ensure deterministic behavior (more specific domain wins before less specific TLD rules).
 

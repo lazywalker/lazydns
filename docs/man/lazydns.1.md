@@ -84,7 +84,7 @@ lazydns --config ./config.example.yaml
 
 ## AUTHOR
 
-The lazydns project authors — see the project's Git repository for a list of
+The lazydns project authors; see the project's Git repository for a list of
 contributors.
 
 ## BUGS

@@ -9,13 +9,13 @@
 
 ## Arguments
 
-- `files`: sequence of `{ url: "...", path: "..." }` — required. Each item specifies the source URL and the destination path to write.
+- `files`: sequence of `{ url: "...", path: "..." }`. Required. Each item specifies the source URL and the destination path to write.
 - `timeout_secs`: request timeout in seconds (default: 30).
-- `concurrent`: boolean — whether to download files concurrently (default: false).
+- `concurrent` (boolean): whether to download files concurrently (default: false).
 - `max_retries`: number of retry attempts for each file (default: 3).
 - `retry_delay_secs`: base retry delay in seconds (default: 2). Backoff is exponential per attempt.
 
-## Example — direct plugin
+## Example: direct plugin
 
 ```yaml
 plugins:
@@ -33,7 +33,7 @@ plugins:
       retry_delay_secs: 2
 ```
 
-## Example — invoked by `cron`
+## Example: invoked by `cron`
 
 ```yaml
 - tag: cron_scheduler

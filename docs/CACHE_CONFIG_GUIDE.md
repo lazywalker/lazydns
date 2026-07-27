@@ -19,7 +19,7 @@ The Cache plugin in lazydns provides DNS response caching with advanced features
 
 - **Type**: Boolean
 - **Default**: true
-- **Description**: Whether to cache negative responses (NXDOMAIN, SERVFAIL, etc.). Enabling this reduces load on upstream servers for non-existent domains.
+- **Description**: Whether to cache negative responses (NXDOMAIN, SERVFAIL). Enabling this reduces load on upstream servers for non-existent domains.
 - **Example**: `negative_cache: false`
 
 #### `negative_ttl`
@@ -42,7 +42,7 @@ The Cache plugin in lazydns provides DNS response caching with advanced features
 
 - **Type**: Float (0.0-1.0)
 - **Default**: 0.05
-- **Description**: Threshold for triggering lazy refresh. Refresh occurs when remaining TTL percentage drops below this value (e.g., 0.05 = 5% of original TTL).
+- **Description**: Threshold for triggering lazy refresh. Refresh occurs when remaining TTL percentage drops below this value (such as 0.05 = 5% of original TTL).
 - **Example**: `lazycache_threshold: 0.1`
 
 ### Stale-Serving (Extended Cache TTL)
@@ -51,7 +51,7 @@ The Cache plugin in lazydns provides DNS response caching with advanced features
 
 - **Type**: Integer (seconds)
 - **Default**: Not set (disabled)
-- **Description**: Enables stale-serving with extended cache duration. When DNS message TTL expires but cache TTL remains, serves stale response with small TTL (5 seconds) and refreshes in background. Set to desired cache duration (e.g., 600 for 10 minutes).
+- **Description**: Enables stale-serving with extended cache duration. When DNS message TTL expires but cache TTL remains, serves stale response with small TTL (5 seconds) and refreshes in background. Set to desired cache duration (such as 600 for 10 minutes).
 - **Example**: `cache_ttl: 600`
 
 ## Example Configurations
@@ -118,7 +118,7 @@ The Cache plugin in lazydns provides DNS response caching with advanced features
 ### Performance Tuning
 
 - Enable `enable_lazycache` for hot domains to reduce latency.
-- Use lower `lazycache_threshold` (e.g., 0.02) for more aggressive refresh.
+- Use lower `lazycache_threshold` (such as 0.02) for more aggressive refresh.
 - Set `cache_ttl` to 2-3x typical DNS TTL for stale-serving benefits.
 
 ### Monitoring
@@ -134,7 +134,7 @@ The Cache plugin in lazydns provides DNS response caching with advanced features
 **High Cache Miss Rate**
 
 - Increase `size` if cache is full.
-- Check if domains are being skipped (e.g., via `!qname` conditions).
+- Check if domains are being skipped (such as via `!qname` conditions).
 
 **Stale Responses Not Working**
 

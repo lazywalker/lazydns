@@ -16,7 +16,7 @@ full:example.com           # exact match only
 domain:example.com         # match example.com and all subdomains
 keyword:google             # substring/keyword match
 regexp:^.+\.google\.com$ # regex pattern (Rust regex syntax)
-example.org                # no prefix → uses the dataset's default match type (usually `domain`)
+example.org                # no prefix: uses the dataset's default match type (usually `domain`)
 ```
 
 - Normalization: entries are trimmed and lowercased; trailing dots on queries are ignored at match time.
@@ -33,7 +33,7 @@ example.org                # no prefix → uses the dataset's default match type
 
 Examples and recommendations:
 
-- Place dataset examples under `examples/etc/` (e.g. `examples/etc/direct-list.txt`,
+- Place dataset examples under `examples/etc/` (such as `examples/etc/direct-list.txt`,
 	`examples/etc/gfw.txt`).
 - Prefer `domain:` for large domain lists that should match subdomains; use `full:` when only
 	an exact match is intended.
@@ -59,10 +59,10 @@ Examples and recommendations:
 **Geosite / GeoIP datasets**
 
 - Geosite: lists of domains grouped by geography or categories (commonly used for routing decisions).
-- GeoIP: IP-to-country databases (e.g., MaxMind or other-lite formats) used to determine country
+- GeoIP: IP-to-country databases (such as MaxMind or other-lite formats) used to determine country
 	membership for IPs.
 - Sources and format: geosite files are usually plain domain lists with optional grouping metadata;
-	GeoIP files vary by source — the repository includes downloader helpers and example locations.
+	GeoIP files vary by source; the repository includes downloader helpers and example locations.
 - Usage: many plugins accept geosite/geoip paths or rely on dataset plugins that expose membership
 	queries. Use the `downloader` plugin to fetch and atomically update large third-party datasets.
 
@@ -71,7 +71,7 @@ Examples and recommendations:
 - File format: keep simple line-based formats (one item per line, `#` for comments). For domain rules
 	support the same `prefix:value` styles shown above to keep behavior predictable.
 - Parsers: implement a small loader that normalizes entries and supports the same prefixes. If you
-	need specialized parsing (e.g., CSV with extra columns) provide a conversion step to the plain
+	need specialized parsing (such as CSV with extra columns) provide a conversion step to the plain
 	list format and let lazydns consume the normalized file.
 - Integration tips:
 	- Use atomic file replacement (write to a temp file then rename) when updating datasets.
@@ -81,6 +81,6 @@ Examples and recommendations:
 
 **Examples and locations**
 
-- Example dataset files in this repo: [examples/etc](examples/etc) — use these as templates.
+- Example dataset files in this repo: [examples/etc](examples/etc). Use these as templates.
 - Refer to `DomainSetPlugin` and the source in `src/plugins/dataset/domain_set.rs` for runtime
 	behavior and functions (`add_line`, `add_rule`, matching priority, auto-reload).

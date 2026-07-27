@@ -5,6 +5,7 @@ LABEL maintainer="lazywalker <lazywalkerz@gmail.com>"
 ARG TARGETPLATFORM
 
 # Install runtime files we need to copy into the final scratch image
+RUN apk update --no-cache
 RUN apk add --no-cache curl tzdata
 
 # Copy examples and application; perform necessary adjustments while we still have a shell

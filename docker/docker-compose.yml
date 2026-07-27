@@ -41,7 +41,7 @@ services:
 
     # Allow binding low ports (<1024) from non-root processes inside container.
     # Podman/Docker: container must have the capability; rootless Podman may still
-    # restrict this—run with sudo or grant capability on the host if needed.
+    # restrict this; run with sudo or grant capability on the host if needed.
     cap_add:
       - CAP_NET_BIND_SERVICE
     

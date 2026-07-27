@@ -13,8 +13,8 @@ cargo run -- --config examples/acl.demo.yaml
 ```
 
 ## Try a demo
-- `examples/acl.demo.yaml` — ACL demo
-- `examples/query_summary.demo.yaml` — Query summary demo
+- `examples/acl.demo.yaml`: ACL demo
+- `examples/query_summary.demo.yaml`: Query summary demo
 
 ## Docker (optional)
 Examples for running with Docker and docker-compose.

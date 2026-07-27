@@ -51,7 +51,7 @@ impl RedirectPlugin {
         let qname_lower = qname.to_lowercase();
 
         if let Some(suffix) = from_lower.strip_prefix("*.") {
-            // Wildcard match: the query must equal the suffix (e.g. "old.com")
+            // Wildcard match: the query must equal the suffix (such as "old.com")
             // or be a proper subdomain of it ("www.old.com"). Requiring a dot
             // boundary prevents "evilexample.com" from matching "*.example.com".
             qname_lower == suffix || qname_lower.ends_with(&format!(".{suffix}"))

@@ -34,7 +34,7 @@ mod admin_server_integration_tests {
         // Verify response
         assert!(response.is_ok(), "Server should be responding");
         let resp = response.unwrap();
-        assert_eq!(resp.status(), 200, "Should return 200 OK");
+        assert_eq!(resp.status(), 200);
 
         let body = resp.json::<serde_json::Value>().await.unwrap();
         assert_eq!(body["status"], "running");

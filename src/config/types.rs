@@ -103,7 +103,7 @@ impl PluginConfig {
     /// Get the effective args as a HashMap.
     ///
     /// Converts the `args` YAML mapping into a flat key-value HashMap. Non-mapping
-    /// args (e.g. for sequence plugins) yield an empty map.
+    /// args (such as for sequence plugins) yield an empty map.
     pub fn effective_args(&self) -> HashMap<String, Value> {
         let mut result = HashMap::new();
 

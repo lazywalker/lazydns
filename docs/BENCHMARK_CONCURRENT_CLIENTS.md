@@ -235,9 +235,9 @@ The following changes enable this optimization:
 ## Real-World Applicability
 
 ### When Arc Wins
-1. **High concurrency:** Multiple clients forwarding to same upstream → shared message via Arc
-2. **Large messages:** More expensive to clone → bigger savings with Arc
-3. **Memory-constrained systems:** Every allocation matters → 6.8x reduction is significant
+1. **High concurrency:** Multiple clients forwarding to same upstream: shared message via Arc
+2. **Large messages:** More expensive to clone: bigger savings with Arc
+3. **Memory-constrained systems:** Every allocation matters: 6.8x reduction is significant
 4. **Multi-core systems:** Better cache locality from fewer allocations
 
 ### Timing Considerations

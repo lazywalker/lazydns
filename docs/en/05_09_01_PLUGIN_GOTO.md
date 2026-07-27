@@ -57,15 +57,15 @@ plugins:
 
 Execution for a matching query:
 - `main` sequence starts
-- `matches` step detects DNS-SD query → `goto dns_sd_sink`
+- `matches` step detects DNS-SD query: `goto dns_sd_sink`
 - `main` sequence stops, `dns_sd_sink` sequence starts
 - `dns_sd_sink` executes its steps: logs query, sinks it, accepts
 - `upstream` step in `main` is never executed unless $dns_sd_rules does not match
 
 ## Differences vs `jump`
 
-- `goto`: Replace semantics — stops the current sequence and transfers control to the target sequence. Use when you want to route to an entirely different processing path.
-- `jump`: Push/return semantics — executes a target plugin/sequence, then returns and continues the caller sequence. Use when you need auxiliary work that should not permanently alter the caller flow (e.g., logging, rate checks).
+- `goto`: Replace semantics; stops the current sequence and transfers control to the target sequence. Use when you want to route to an entirely different processing path.
+- `jump`: Push/return semantics; executes a target plugin/sequence, then returns and continues the caller sequence. Use when you need auxiliary work that should not permanently alter the caller flow (such as logging, rate checks).
 
 ## Implementation notes
 
@@ -75,6 +75,6 @@ Execution for a matching query:
 ## Notes
 
 - Use `goto` when you need to perform a full redirect to alternate processing (error handling, quarantine, specialized handling).
-- Be cautious when chaining `goto` targets; the system will execute goto targets in a loop — if the target sets another `goto_label`, it will be handled in turn.
+- Be cautious when chaining `goto` targets; the system will execute goto targets in a loop. If the target sets another `goto_label`, it will be handled in turn.
 
 

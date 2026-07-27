@@ -14,14 +14,14 @@
 //! # API Endpoints
 //!
 //! - `GET /api/cache/stats` - Retrieve cache statistics (size, hits, misses, evictions, hit rate)
-//! - `POST /api/cache/control` - Control cache operations (e.g., clear)
+//! - `POST /api/cache/control` - Control cache operations (such as clear)
 //! - `POST /api/config/reload` - Reload configuration from file
 //! - `GET /api/server/stats` - Get current server status and version
 //!
 //! # Security Considerations
 //!
 //! The admin API has no built-in authentication. It should only be exposed to trusted networks
-//! or protected by network-level access controls (firewall, reverse proxy with auth, etc.).
+//! or protected by network-level access controls (firewall, reverse proxy with auth, and others).
 //! Production deployments should:
 //! - Bind to localhost or internal network only
 //! - Use a reverse proxy with authentication
@@ -296,7 +296,7 @@ impl AdminServer {
     ///
     /// # Arguments
     ///
-    /// * `addr` - Address to bind to (e.g., "127.0.0.1:8000")
+    /// * `addr` - Address to bind to (such as "127.0.0.1:8000")
     /// * `state` - Admin state containing shared config and plugin registry
     ///
     /// # Returns
@@ -645,7 +645,7 @@ async fn cache_stats(State(state): State<Arc<AdminState>>) -> Response {
 ///
 /// - The endpoint validates the configuration but does not apply it to running plugins
 /// - To fully apply new configuration, restart the server
-/// - Configuration changes take effect on next DNS query in some cases (e.g., timeout changes)
+/// - Configuration changes take effect on next DNS query in some cases (such as timeout changes)
 async fn reload_config(
     State(state): State<Arc<AdminState>>,
     Json(request): Json<ReloadConfigRequest>,
@@ -700,7 +700,7 @@ async fn reload_config(
 /// Returns a JSON object with:
 /// - `status`: Current operational status (always `"running"`)
 /// - `version`: Server version from the package manifest
-/// - `uptime`: Human readable uptime (e.g., "21d 15:05:37")
+/// - `uptime`: Human readable uptime (such as "21d 15:05:37")
 ///
 /// # HTTP Status Codes
 ///
@@ -759,7 +759,7 @@ fn format_duration(d: Duration) -> String {
 mod tests {
     use super::*;
 
-    // ============ Struct Serialization Tests ============
+    // Struct Serialization Tests
 
     #[test]
     fn test_cache_control_request_serialization() {
@@ -840,7 +840,7 @@ mod tests {
         assert_eq!(deserialized.error, "An error occurred");
     }
 
-    // ============ State Creation Tests ============
+    // State Creation Tests
 
     #[test]
     fn test_admin_state_creation() {
@@ -862,7 +862,7 @@ mod tests {
         let _cloned = state.clone();
     }
 
-    // ============ AdminServer Creation Tests ============
+    // AdminServer Creation Tests
 
     #[test]
     fn test_admin_server_creation() {
@@ -883,7 +883,7 @@ mod tests {
         let _server = AdminServer::new(":9999", state);
     }
 
-    // ============ Handler Tests ============
+    // Handler Tests
 
     #[tokio::test]
     async fn test_server_stats_endpoint() {
@@ -1005,7 +1005,7 @@ mod tests {
         );
     }
 
-    // ============ Hit Rate Calculation Tests ============
+    // Hit Rate Calculation Tests
 
     #[test]
     fn test_hit_rate_calculation_with_all_hits() {
@@ -1063,7 +1063,7 @@ mod tests {
         assert_eq!(hit_rate, 0.0);
     }
 
-    // ============ Response Type Tests ============
+    // Response Type Tests
 
     #[test]
     fn test_cache_stats_response_with_large_numbers() {
@@ -1101,7 +1101,7 @@ mod tests {
         assert_eq!(resp.hit_rate, 0.0);
     }
 
-    // ============ Edge Cases ============
+    // Edge Cases
 
     #[test]
     fn test_cache_control_request_with_empty_action() {

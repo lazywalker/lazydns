@@ -45,8 +45,8 @@ The parser accepts both IP-first and hostname-first formats on the same line and
 
 The plugin supports the following configuration keys:
 
-- `files` — (string or sequence) paths to one or more hosts files to load
-- `auto_reload` — (bool) enable automatic reload when any watched file changes
+- `files`: (string or sequence) paths to one or more hosts files to load
+- `auto_reload`: (bool) enable automatic reload when any watched file changes
 
 Example YAML configuration for the plugin:
 
@@ -66,11 +66,11 @@ Notes:
 
 ## Debugging and Troubleshooting
 
-- Increase verbosity (e.g., `-v` / `-vv`) to see plugin initialization logs.
+- Increase verbosity (such as `-v` / `-vv`) to see plugin initialization logs.
 - Common log messages:
-  - `Hosts loaded (wrapper)` — indicates hosts were successfully loaded and reports number of entries and files.
-  - `Failed to read hosts file` — read error for a configured file (file missing or permission issue).
-  - `Failed to parse hosts file during auto-reload` — parsing error (invalid IP/token) when reloading.
+  - `Hosts loaded (wrapper)`: indicates hosts were successfully loaded and reports number of entries and files.
+  - `Failed to read hosts file`: read error for a configured file (file missing or permission issue).
+  - `Failed to parse hosts file during auto-reload`: parsing error (invalid IP/token) when reloading.
 - If a hostname is not matching:
   - Verify the entry exists and has a valid IP address
   - Ensure plugins are ordered so `hosts` runs before any plugin that would short-circuit or override its response
@@ -79,7 +79,7 @@ Notes:
 
 - Place `hosts` early in the pipeline (default priority=100) to ensure local overrides are applied before expensive upstream queries.
 - Use `auto_reload: true` during development for fast iteration, and consider disabling it for production deployments if filesystem stability is a concern.
-- Keep host files small and focused (e.g., project-specific overrides) if you use auto-reload to avoid frequent reloads.
+- Keep host files small and focused (such as project-specific overrides) if you use auto-reload to avoid frequent reloads.
 
 ## See also
 

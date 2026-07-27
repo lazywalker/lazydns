@@ -216,8 +216,8 @@ Example response:
 **Symptoms**: Memory usage increases over time despite cleanup being enabled
 
 **Solutions**:
-1. Lower `cleanup_pressure_threshold` (e.g., 0.7 instead of 0.8)
-2. Reduce `cleanup_interval_secs` (e.g., 30 instead of 60)
+1. Lower `cleanup_pressure_threshold` (such as 0.7 instead of 0.8)
+2. Reduce `cleanup_interval_secs` (such as 30 instead of 60)
 3. Reduce cache `size` if possible
 4. Check if TTLs are too long (entries expire slowly)
 
@@ -226,7 +226,7 @@ Example response:
 **Symptoms**: CPU spikes every `cleanup_interval_secs` seconds
 
 **Solutions**:
-1. Increase `cleanup_interval_secs` (e.g., 120 instead of 60)
+1. Increase `cleanup_interval_secs` (such as 120 instead of 60)
 2. Reduce cache `size` (fewer entries = faster cleanup)
 3. Disable cleanup if cache is small and LRU is sufficient
 

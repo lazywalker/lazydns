@@ -51,7 +51,7 @@ impl ConfigReloader {
     /// This function starts a background task that monitors the configuration
     /// file for changes and automatically reloads it.
     pub async fn start_watching(self) -> Result<()> {
-        // Use the shared file watcher utility to avoid duplicating logic (debounce, re-watch, etc.)
+        // Use the shared file watcher utility to avoid duplicating logic (debounce, re-watch, and others)
         let path = self.config_path.clone();
         let config = Arc::clone(&self.config);
 

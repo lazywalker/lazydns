@@ -2,7 +2,7 @@ name: Build and Push Docker Image
 
 # NOTE: This workflow is intended to be run manually (via workflow_dispatch)
 # or called by other workflows (via workflow_call). It no longer triggers
-# automatically on push or tag events — use the `release.yml` workflow to
+# automatically on push or tag events; use the `release.yml` workflow to
 # invoke this workflow as part of the release pipeline.
 
 on:

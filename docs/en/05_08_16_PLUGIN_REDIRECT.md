@@ -24,4 +24,4 @@ plugins:
 ## When to use
 
 - Useful for domain migrations, testing, or temporary redirect rules without changing client queries.
-- Combine with other plugins (e.g., `hosts`, `forwarder`) to control resolution of redirected names.
+- Combine with other plugins (such as `hosts`, `forwarder`) to control resolution of redirected names.

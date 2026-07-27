@@ -4,11 +4,11 @@
 
 ## Preferences
 
-- `ipv4` — keep only A records
-- `ipv6` — keep only AAAA records
-- `ipv4_prefer_ipv6_fallback` — prefer IPv4; if none, keep IPv6
-- `ipv6_prefer_ipv4_fallback` — prefer IPv6; if none, keep IPv4
-- `both` — keep both A and AAAA
+- `ipv4`: keep only A records
+- `ipv6`: keep only AAAA records
+- `ipv4_prefer_ipv6_fallback`: prefer IPv4; if none, keep IPv6
+- `ipv6_prefer_ipv4_fallback`: prefer IPv6; if none, keep IPv4
+- `both`: keep both A and AAAA
 
 ## Configuration (plugin args)
 

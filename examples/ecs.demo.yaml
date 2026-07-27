@@ -13,7 +13,7 @@
 # Options:
 #   - forward=true: Copy client-provided ECS options to upstream queries
 #   - send=true: Derive ECS from client IP address
-#   - preset=IP: Use fixed IP address for ECS (e.g., preset=192.0.2.1)
+#   - preset=IP: Use fixed IP address for ECS (such as preset=192.0.2.1)
 #   - mask4=N: IPv4 subnet mask length (default: 24)
 #   - mask6=N: IPv6 subnet mask length (default: 48)
 #

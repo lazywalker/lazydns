@@ -122,7 +122,7 @@ mod tests {
 The project now prefers using derive macros to register plugin factories automatically.
 
 - Use `#[derive(RegisterPlugin)]` on your plugin type to generate and register a factory at compile time.
-- The derived canonical plugin type name is produced by stripping a trailing `Plugin` suffix (if present) and converting PascalCase to snake_case, e.g. `MyCachePlugin` -> `my_cache`.
+- The derived canonical plugin type name is produced by stripping a trailing `Plugin` suffix (if present) and converting PascalCase to snake_case, for example `MyCachePlugin` -> `my_cache`.
 - The macro submits the factory into the `linkme` distributed slice; the runtime can then discover it with `crate::plugin::factory::get_plugin_factory("type_name")`.
 - For exec-style plugins, use `#[derive(RegisterExecPlugin)]` which behaves the same but registers into the exec-factory slice.
 
@@ -199,8 +199,8 @@ impl crate::plugin::Plugin for MyPlugin {
 3. Notes and best practices
 - Prefer using `#[derive(ShutdownPlugin)]` for automatic bridge method generation.
 - The shutdown coordinator will automatically discover and call `Shutdown::shutdown()` via the `as_shutdown` bridge.
-- Do not hold non-`Send` locks (e.g., `std::sync::MutexGuard`) across `.await`. Take/clone the handles out of the lock before awaiting their JoinHandles.
-- Keep shutdown fast and idempotent — it may be called during tests or on repeated reloads.
+- Do not hold non-`Send` locks (such as `std::sync::MutexGuard`) across `.await`. Take/clone the handles out of the lock before awaiting their JoinHandles.
+- Keep shutdown fast and idempotent; it may be called during tests or on repeated reloads.
 
 Following this pattern makes plugins safe to use in the runtime and makes tests deterministic by allowing explicit cleanup of background work.
 
@@ -210,7 +210,7 @@ Following this pattern makes plugins safe to use in the runtime and makes tests 
 
 ## Best practices and notes
 
-- Thread-safety: plugins are typically stored behind `Arc` and may be accessed from multiple threads — keep interior mutability behind locks if needed.
+- Thread-safety: plugins are typically stored behind `Arc` and may be accessed from multiple threads; keep interior mutability behind locks if needed.
 - Errors: return meaningful `crate::Error` variants; sequence runners will propagate errors and usually stop processing.
 - Logging: use `tracing` macros (`info!`, `debug!`, `warn!`) rather than `println!`.
 - Tests: keep unit tests deterministic and avoid external network I/O. For integration tests that require network, mark them separately or use mocks.

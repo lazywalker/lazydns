@@ -54,8 +54,8 @@ ecs: preset=192.0.2.1
 
 ## Metadata keys
 
-- `edns0_options`: Vec<(u16, Vec<u8>)> — encoded EDNS0 options produced by this plugin.
-- `edns0_preserve_existing`: bool — whether to preserve existing options when forwarding.
+- `edns0_options` (Vec<(u16, Vec<u8>)>): encoded EDNS0 options produced by this plugin.
+- `edns0_preserve_existing` (bool): whether to preserve existing options when forwarding.
 
 ## When to use
 

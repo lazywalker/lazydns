@@ -2,10 +2,10 @@
 
 This page documents two related geo-based plugins:
 
-- **`geoip`** — map IP addresses to ISO country codes and set request metadata
-- **`geosite`** — map domain names to categories (countries/regions or custom categories) and set request metadata
+- **`geoip`**: map IP addresses to ISO country codes and set request metadata
+- **`geosite`**: map domain names to categories (countries/regions or custom categories) and set request metadata
 
-Both plugins are useful for routing and policy decisions (e.g., sending China-hosted sites to China-based upstreams) and can be used together in a pipeline.
+Both plugins are useful for routing and policy decisions (such as sending China-hosted sites to China-based upstreams) and can be used together in a pipeline.
 
 ---
 
@@ -48,7 +48,7 @@ plugins:
 
 **Implementation notes**:
 
-- The plugin provides programmatic helpers: `add_country_cidr`, `load_from_string`, `lookup`, `country_count`, etc.
+- The plugin provides programmatic helpers: `add_country_cidr`, `load_from_string`, `lookup`, `country_count`, and others.
 - CIDR parsing uses `ipnet::IpNet` and both IPv4 and IPv6 are supported.
 - On match the plugin sets metadata and returns immediately after the first match.
 
@@ -66,7 +66,7 @@ plugins:
 **Default behavior**:
 
 - Examines the first question (A/AAAA only) and attempts to match the qname against configured domain sets.
-- Supports exact matches and suffix/wildcard patterns (e.g., `*.qq.com` will match `mail.qq.com`).
+- Supports exact matches and suffix/wildcard patterns (such as `*.qq.com` matching `mail.qq.com`).
 - Stores the category under a metadata key (default: `category`).
 - Runs early to tag requests (priority: **70**).
 
@@ -102,7 +102,7 @@ plugins:
 
 - Exact matches: `example.com` matches `example.com`.
 - Wildcard/suffix matches: `*.example.com` and `.example.com` will match `mail.example.com`, `deep.mail.example.com`, and `example.com` itself.
-- Categories are arbitrary strings — you can use ISO country codes, feature flags (`ads`, `cdn`), or any grouping you need.
+- Categories are arbitrary strings; you can use ISO country codes, feature flags (`ads`, `cdn`), or any grouping you need.
 
 **Implementation notes**:
 
@@ -131,7 +131,7 @@ A common pattern is to run both plugins and let later routing plugins decide bas
   -> [plugins: geoip]      # tag answer IPs if needed -> metadata `country`
 ```
 
-Note: order matters — `geo_site` runs early to tag by domain; `geoip` runs after answers are present to tag by IP.
+Note: order matters; `geo_site` runs early to tag by domain, and `geoip` runs after answers are present to tag by IP.
 
 ---
 

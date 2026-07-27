@@ -24,7 +24,7 @@
 - [x] DNS Protocol & Servers (UDP/TCP/DoT/DoH/DoQ)
 - [x] Plugin System & Core Plugins
 - [x] **LazyCache with Stale-Serving** - Background refresh cache with TTL support
-- [x] **Environment Variable Configuration** - Runtime config via METRICS_ADDR, ADMIN_ADDR, etc.
+- [x] **Environment Variable Configuration** - Runtime config via METRICS_ADDR, ADMIN_ADDR, and others.
 - [x] **Prometheus Monitoring** - Metrics collection, health checks, and admin interface
 - [x] **Advanced Condition Matching** - Flexible rule-based DNS query processing with 30+ matching plugins (Hosts, Domain, IP, GeoIP, GeoSite ...)
 - [x] Caching with LRU eviction

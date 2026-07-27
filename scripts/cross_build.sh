@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-# scripts/cross_build.sh — build lazydns for a specific PLATFORM using cross/cargo
+# scripts/cross_build.sh: build lazydns for a specific PLATFORM using cross/cargo
 #
 # Purpose:
 #   - Map buildx TARGETPLATFORM (e.g. linux/arm64) to Rust target triples used in CI

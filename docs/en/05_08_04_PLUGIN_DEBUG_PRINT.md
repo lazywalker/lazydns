@@ -12,9 +12,9 @@
 
 `debug_print` supports a compact exec-style quick setup string. Options are comma-separated and include:
 
-- `queries` — print queries
-- `responses` — print responses
-- `prefix=VALUE` — override the log prefix (default: `DNS`)
+- `queries`: print queries
+- `responses`: print responses
+- `prefix=VALUE`: override the log prefix (default: `DNS`)
 
 Examples:
 

@@ -1,8 +1,8 @@
-# dns-sd.demo.yaml — demo configuration to detect and handle DNS‑SD PTR queries
+# dns-sd.demo.yaml: demo configuration to detect and handle DNS-SD PTR queries
 # Place this file under examples/dns-sd/ and run with:
 #   cargo run -- -c examples/dns-sd/dns-sd.demo.yaml -vv
 #
-# This demo shows three handling strategies for DNS‑SD domain-enumeration PTR queries:
+# This demo shows three handling strategies for DNS-SD domain-enumeration PTR queries:
 #  - dns_sd_empty_reply: return NOERROR with no answers (default safe behavior)
 #  - dns_sd_forward_no_cache: forward to upstreams but avoid caching
 #  - dns_sd_sink: sinkhole / reject responses
@@ -34,8 +34,8 @@
 # Notes / Tips:
 #  - Use -vv logging to see debug_print messages that help verify match/route behavior.
 #  - rules in examples/dns-sd/dns-sd-rules.txt can be edited live (auto_reload=true). Add more
-#    regex lines for other service discovery patterns (e.g., _services._dns-sd._udp.<domain>,
-#    _printer._sub._http._tcp.<domain>, etc.) as needed.
+#    regex lines for other service discovery patterns (such as _services._dns-sd._udp.<domain>,
+#    _printer._sub._http._tcp.<domain>, and others) as needed.
 #  - If you prefer to keep the client experience unchanged, forward the queries instead of
 #    returning empty replies; otherwise empty replies prevent clients from discovering services.
 

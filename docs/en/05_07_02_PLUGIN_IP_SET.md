@@ -6,8 +6,8 @@ This page documents configuration, data formats, usage, and integration patterns
 
 ## Purpose
 
-- Maintain a shared IP/CIDR dataset (e.g., blocklists, private-net lists, CDN prefixes).
-- Provide fast membership checks for other plugins (e.g., filtering, routing, or ipset materialization).
+- Maintain a shared IP/CIDR dataset (such as blocklists, private-net lists, CDN prefixes).
+- Provide fast membership checks for other plugins (such as filtering, routing, or ipset materialization).
 
 ## Key behaviors
 
@@ -83,7 +83,7 @@ plugins:
 
 - Prefer CIDR entries for broad ranges and single IPs only where necessary.
 - Keep file sizes reasonable or split large datasets to reduce reload impact.
-- Combine `ip_set` with executor plugins (e.g., `ipset`) or custom plugins that read `ip_set_<name>` metadata to materialize or act on matched IPs.
+- Combine `ip_set` with executor plugins (such as `ipset`) or custom plugins that read `ip_set_<name>` metadata to materialize or act on matched IPs.
 
 ## Example pipeline
 

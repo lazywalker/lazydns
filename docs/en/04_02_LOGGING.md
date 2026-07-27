@@ -36,7 +36,7 @@ log:
       period: daily  # or 'hourly'
 ```
 
-Generated filenames: `app.log.2026-01-09`, `app.log.2026-01-08`, etc.
+Generated filenames: `app.log.2026-01-09`, `app.log.2026-01-08`, and so on.
 
 ### Size-based Rotation
 

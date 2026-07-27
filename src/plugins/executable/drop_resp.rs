@@ -31,7 +31,6 @@ impl DropRespPlugin {
 
 #[async_trait]
 impl Plugin for DropRespPlugin {
-    /// Return the canonical plugin name `drop_resp`.
     fn name(&self) -> &str {
         "drop_resp"
     }

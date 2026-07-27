@@ -7,7 +7,7 @@
 # Configuration options:
 # - default: Default action when no rules match ("allow" or "deny", defaults to "deny")
 # - rules: List of ACL rules, each with:
-#   - network: IP network in CIDR notation (e.g., "192.168.0.0/16")
+#   - network: IP network in CIDR notation (such as "192.168.0.0/16")
 #   - action: Action to take for this network ("allow" or "deny")
 #
 # Examples:

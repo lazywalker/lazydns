@@ -88,7 +88,7 @@ pub struct QueryLogEntry {
     /// Query name (domain being queried)
     pub qname: String,
 
-    /// Query type (A, AAAA, MX, etc.)
+    /// Query type (A, AAAA, MX)
     pub qtype: String,
 
     /// Query class (usually IN)

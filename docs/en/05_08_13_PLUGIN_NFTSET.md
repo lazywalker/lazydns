@@ -4,7 +4,7 @@
 
 ## Quick setup (shorthand)
 
-Shorthand format: `"family,table,set,addr_type,mask [ ... ]"` e.g.:
+Shorthand format: `"family,table,set,addr_type,mask [ ... ]"`, for example:
 
 ```yaml
 plugins:
@@ -23,4 +23,4 @@ plugins:
 ## When to use
 
 - Use for firewall automation on systems using nftables.
-- Useful for dynamically populating address sets based on DNS responses (e.g., for blocking or sinkholing).
+- Useful for dynamically populating address sets based on DNS responses (such as for blocking or sinkholing).

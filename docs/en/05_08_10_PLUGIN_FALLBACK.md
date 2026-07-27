@@ -9,9 +9,9 @@
 
 ## Arguments
 
-- `primary`: string — primary child plugin name (optional)
-- `secondary`: string — secondary child plugin name (optional)
-- `error_only`: bool — when true, only fallback on errors (default: false)
+- `primary` (string): primary child plugin name (optional)
+- `secondary` (string): secondary child plugin name (optional)
+- `error_only` (bool): when true, only fallback on errors (default: false)
 
 ## Examples
 

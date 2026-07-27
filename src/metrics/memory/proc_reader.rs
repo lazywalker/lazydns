@@ -107,7 +107,7 @@ fn parse_proc_status(content: &str) -> io::Result<ProcMemoryStats> {
     Ok(stats)
 }
 
-/// Parse memory value in kB format (e.g., "  12345 kB") (Linux only)
+/// Parse memory value in kB format (such as "  12345 kB") (Linux only)
 ///
 /// Extracts the numeric value and converts to bytes (multiply by 1024).
 #[cfg(target_os = "linux")]

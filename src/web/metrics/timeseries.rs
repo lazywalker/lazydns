@@ -305,7 +305,6 @@ impl LatencyDistribution {
 
     /// Add a latency measurement in milliseconds
     pub fn add(&self, latency_ms: f64) {
-        // Add to samples for percentile calculation
         {
             let mut samples = self.samples.write();
             if samples.len() >= self.max_samples {

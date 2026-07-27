@@ -17,7 +17,7 @@ The `forward` plugin forwards DNS queries to upstream resolvers. It supports mul
 - The plugin answers queries by forwarding them to upstream servers when no previous plugin produced a response.
 - If `concurrent` mode is enabled (legacy numeric `concurrent` > 1), the plugin races queries to all upstreams and uses the first successful response.
 - Otherwise, it will attempt a sequential failover using the configured load-balancing strategy and `max_attempts`.
-- DoH upstreams are supported by using HTTP(S) URLs (e.g., `https://dns.example/dns-query`).
+- DoH upstreams are supported by using HTTP(S) URLs (such as `https://dns.example/dns-query`).
 - For UDP/TCP upstream strings you can optionally prefix with `udp://` or `tcp://`; the plugin will accept either and normalize addresses to include a port (default port 53 if missing).
 
 ## Configuration options

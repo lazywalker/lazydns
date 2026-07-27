@@ -26,5 +26,5 @@ plugins:
 
 ## When to use
 
-- Use `mark` to annotate requests for conditional plugin logic (e.g., bypass cache, prefer upstreams, or tag telemetry).
+- Use `mark` to annotate requests for conditional plugin logic (such as bypassing cache, preferring upstreams, or tagging telemetry).
 - Marks can be used in combination with other plugins that read metadata to influence behavior based on request attributes.

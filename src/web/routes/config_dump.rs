@@ -89,9 +89,9 @@ pub struct PluginSummary {
 /// One step within a sequence plugin.
 #[derive(Debug, Serialize)]
 pub struct SequenceStepSummary {
-    /// Optional condition expression (e.g. `has_resp`, `qname $list`).
+    /// Optional condition expression (such as `has_resp`, `qname $list`).
     pub matches: Option<String>,
-    /// Executed action (e.g. `$forward`, `accept`, `black_hole 127.0.0.1`).
+    /// Executed action (such as `$forward`, `accept`, `black_hole 127.0.0.1`).
     pub exec: Option<String>,
 }
 
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_sequence_steps_empty_for_non_sequence_args() {
+    fn parse_sequence_steps_empty_for_non_sequence() {
         // Mapping args (not a sequence) → empty steps, no panic.
         let args: Value = serde_yaml::from_str("size: 1024").unwrap();
         let steps = parse_sequence_steps(&args);
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_summarize_non_sequence_plugin_returns_args_json() {
+    fn summarize_non_sequence_returns_args_json() {
         let cfg = plugin("cache", "1024");
         let summary = summarize_plugin(&cfg);
         assert!(!summary.is_sequence);

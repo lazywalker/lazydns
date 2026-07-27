@@ -40,9 +40,9 @@ impl MyPlugin {
 }
 ```
 
-Macros provided (examples — see crate source for exact names/signatures):
-- `RegisterPlugin` / `RegisterExecPlugin` — implements plugin registration helpers
-- `ShutdownPlugin` — helper derive to wire up shutdown lifecycle methods
+Macros provided (examples; see crate source for exact names/signatures):
+- `RegisterPlugin` / `RegisterExecPlugin`: implements plugin registration helpers
+- `ShutdownPlugin`: helper derive to wire up shutdown lifecycle methods
 
 
 ## License

@@ -5,7 +5,7 @@
 
 ## Exec quick-setup
 
-- Quick: `return` — used as `exec: return` to stop the current sequence.
+- Quick: `return` (used as `exec: return` to stop the current sequence).
 
 ## Args
 
@@ -19,7 +19,7 @@
 
 ## When to use
 
-- Exit a sequence early after performing local checks or side-effects (e.g., logging or metrics) so the caller can resume.
+- Exit a sequence early after performing local checks or side-effects (such as logging or metrics) so the caller can resume.
 - Use inside helper sequences invoked with `jump` when you want to return control to the originator without accepting/rejecting the response.
 
 ## Examples

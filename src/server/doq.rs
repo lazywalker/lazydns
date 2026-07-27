@@ -49,7 +49,7 @@ impl std::fmt::Debug for DoqServer {
 impl DoqServer {
     /// Create a new `DoqServer`.
     ///
-    /// - `addr` is the socket address to bind (e.g. "127.0.0.1:784").
+    /// - `addr` is the socket address to bind (such as "127.0.0.1:784").
     /// - `cert_path` and `key_path` are filesystem paths to PEM-encoded
     ///   certificate and private key files respectively.
     /// - `handler` is an `Arc` to a `RequestHandler` which will be invoked
@@ -192,7 +192,7 @@ async fn handle_stream(
         .map_err(|e| crate::Error::Io(std::io::Error::other(e)))?;
 
     // Finalize the send side of the stream. `finish()` will return an
-    // error if the underlying connection is terminated — map that to the
+    // error if the underlying connection is terminated; map that to the
     // crate IO error type as well.
     send.finish()
         .map_err(|e| crate::Error::Io(std::io::Error::other(e)))?;
@@ -249,7 +249,7 @@ fn build_quic_server_config(cert_path: &str, key_path: &str) -> Result<ServerCon
         .map_err(|e| crate::Error::Config(format!("Failed to build rustls config: {}", e)))?;
 
     // Convert to quinn QuicServerConfig. `quinn` expects a specific crypto
-    // configuration derived from `rustls::ServerConfig` — this conversion may
+    // configuration derived from `rustls::ServerConfig`; this conversion may
     // surface configuration incompatibilities and is mapped into a Config
     // error on failure.
     let quic_crypto =

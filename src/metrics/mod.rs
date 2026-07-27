@@ -7,10 +7,10 @@
 //!
 //! Public metrics offered by this module:
 //! - `dns_queries_total{protocol,query_type}`: counter of queries received,
-//!   labelled by transport protocol (e.g. `udp`, `tcp`, `tls`, `doh`) and DNS
-//!   question type (A/AAAA/etc).
+//!   labelled by transport protocol (such as `udp`, `tcp`, `tls`, `doh`) and DNS
+//!   question type (such as A/AAAA).
 //! - `dns_responses_total{protocol,status}`: counter of responses sent,
-//!   labelled by protocol and response status (e.g. `NOERROR`, `NXDOMAIN`).
+//!   labelled by protocol and response status (such as `NOERROR`, `NXDOMAIN`).
 //! - `dns_query_duration_seconds{protocol}`: histogram of request processing
 //!   latency in seconds, labelled by protocol.
 //! - `dns_cache_hits_total`, `dns_cache_misses_total`: simple counters for the
@@ -71,8 +71,8 @@ pub static METRICS_REGISTRY: Lazy<Arc<Registry>> = Lazy::new(|| Arc::new(Registr
 /// Counter of DNS queries grouped by transport `protocol` and `query_type`.
 ///
 /// Labels:
-/// - `protocol`: transport/protocol where the query was received (e.g. `udp`, `tcp`, `doh`).
-/// - `query_type`: DNS question type label (e.g. `A`, `AAAA`, `TXT`).
+/// - `protocol`: transport/protocol where the query was received (such as `udp`, `tcp`, `doh`).
+/// - `query_type`: DNS question type label (such as `A`, `AAAA`, `TXT`).
 pub static DNS_QUERIES_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     let counter = IntCounterVec::new(
         Opts::new("dns_queries_total", "Total number of DNS queries"),
@@ -89,7 +89,7 @@ pub static DNS_QUERIES_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
 ///
 /// Labels:
 /// - `protocol`: transport/protocol used to send the response.
-/// - `status`: textual response code (e.g. `NOERROR`, `NXDOMAIN`).
+/// - `status`: textual response code (such as `NOERROR`, `NXDOMAIN`).
 pub static DNS_RESPONSES_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     let counter = IntCounterVec::new(
         Opts::new("dns_responses_total", "Total number of DNS responses"),
@@ -168,7 +168,7 @@ pub static SERVER_UPTIME_SECONDS: Lazy<IntGauge> = Lazy::new(|| {
 ///
 /// Labels:
 /// - `upstream`: identifier or address of the upstream resolver.
-/// - `status`: outcome of the upstream query (e.g. `success`, `timeout`, `error`).
+/// - `status`: outcome of the upstream query (such as `success`, `timeout`, `error`).
 pub static UPSTREAM_QUERIES_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     let counter = IntCounterVec::new(
         Opts::new(
@@ -203,7 +203,7 @@ pub static UPSTREAM_DURATION_SECONDS: Lazy<HistogramVec> = Lazy::new(|| {
     histogram
 });
 
-/// Gauge of active connections by `protocol` (e.g. `udp`, `tcp`).
+/// Gauge of active connections by `protocol` (such as `udp`, `tcp`).
 pub static ACTIVE_CONNECTIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
     let gauge = IntGaugeVec::new(
         Opts::new("dns_active_connections", "Number of active connections"),
@@ -219,7 +219,7 @@ pub static ACTIVE_CONNECTIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
 /// Counter of domain validation events, labelled by `result`.
 ///
 /// Labels:
-/// - `result`: validation outcome (e.g. `valid`, `invalid_chars`, `blacklisted`).
+/// - `result`: validation outcome (such as `valid`, `invalid_chars`, `blacklisted`).
 pub static DNS_DOMAIN_VALIDATION_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     let counter = IntCounterVec::new(
         Opts::new(
@@ -279,7 +279,7 @@ pub static DNS_DOMAIN_VALIDATION_CACHE_SIZE: Lazy<IntGauge> = Lazy::new(|| {
     gauge
 });
 
-/// Counter for number of evictions from all caches (e.g., response cache, domain validation cache).
+/// Counter for number of evictions from all caches (such as response cache, domain validation cache).
 /// Incremented when inserting a new entry causes an existing entry to be evicted.
 pub static DNS_CACHE_EVICTIONS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     let counter = IntCounter::new(
@@ -338,7 +338,7 @@ pub static DNS_DOMAIN_VALIDATION_CACHE_MISSES_TOTAL: Lazy<IntCounter> = Lazy::ne
 
 /// Counter of plugin execution events, labelled by `plugin` and `status`.
 ///
-/// Typical `status` labels are `ok`, `skipped`, `error`, etc., depending on
+/// Typical `status` labels are `ok`, `skipped`, `error`, depending on
 /// how the plugin reports its execution result.
 pub static PLUGIN_EXECUTIONS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     let counter = IntCounterVec::new(
@@ -403,7 +403,6 @@ mod tests {
 
     #[test]
     fn test_responses_and_upstream_metrics() {
-        // increment response counter and upstream counters/histogram
         DNS_RESPONSES_TOTAL
             .with_label_values(&["udp", "NOERROR"])
             .inc();
@@ -421,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_size_active_connections_and_plugin_exec() {
+    fn cache_size_active_connections_plugin_exec() {
         // Set gauge and counters and verify exposition contains values and labels
         CACHE_SIZE.set(42);
         ACTIVE_CONNECTIONS.with_label_values(&["udp"]).set(3);

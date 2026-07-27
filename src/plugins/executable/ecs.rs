@@ -46,13 +46,8 @@ pub struct EcsArgs {
 
 /// Runtime ECS handler.
 ///
-/// This plugin prepares EDNS0 CLIENT-SUBNET options and writes them into
-/// context metadata (`edns0_options` and `edns0_preserve_existing`) so that
-/// downstream forwarding logic can include them in upstream queries.
-///
-/// The ECS (EDNS Client Subnet) option allows DNS resolvers to pass client
-/// subnet information to authoritative servers, enabling them to return
-/// geographically appropriate responses (e.g., for CDNs).
+/// Prepares EDNS0 CLIENT-SUBNET options and writes them into context metadata
+/// (`edns0_options` and `edns0_preserve_existing`) for downstream forwarding.
 ///
 /// # Processing Order
 ///
@@ -66,46 +61,12 @@ pub struct EcsArgs {
 /// - `client_addr`: Client IP address string (for deriving ECS)
 /// - `edns0_options`: Output ECS options for downstream plugins
 /// - `edns0_preserve_existing`: Flag to preserve existing options
-///
-/// # Examples
-///
-/// Basic forwarding:
-/// ```yaml
-/// plugins:
-///   - type: ecs
-///     args:
-///       forward: true
-/// ```
-///
-/// Derive from client IP:
-/// ```yaml
-/// plugins:
-///   - type: ecs
-///     args:
-///       send: true
-///       mask4: 24
-///       mask6: 56
-/// ```
-///
-/// Use preset address:
-/// ```yaml
-/// plugins:
-///   - type: ecs
-///     args:
-///       preset: "192.0.2.1"
-///       mask4: 24
-/// ```
 #[derive(Clone, RegisterExecPlugin)]
 pub struct EcsPlugin {
-    /// Whether to forward client EDNS0 options
     forward: bool,
-    /// Whether to send derived ECS options
     send: bool,
-    /// Optional preset IP address
     preset: Option<IpAddr>,
-    /// IPv4 subnet mask length
     mask4: u8,
-    /// IPv6 subnet mask length
     mask6: u8,
 }
 
@@ -119,7 +80,7 @@ impl EcsPlugin {
     /// # Returns
     ///
     /// Returns a `Result` containing the configured `EcsPlugin` or an error
-    /// if the configuration is invalid (e.g., invalid mask values or preset address).
+    /// if the configuration is invalid (such as invalid mask values or preset address).
     ///
     /// # Errors
     ///

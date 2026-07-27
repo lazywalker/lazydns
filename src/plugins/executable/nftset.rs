@@ -9,9 +9,6 @@
 //! Quick-setup accepts a compact shorthand used by some configurations:
 //! `"<family>,<table>,<set>,<addr_type>,<mask> ..."` (max two fields).
 //! Example: `"inet,my_table,my_set,ipv4_addr,24"`.
-//!
-//! Note: `SetArgs` contains optional table family and table names which
-//! are used when attempting to run `nft` with the configured parameters.
 use crate::dns::RData;
 use crate::plugin::{Context, ExecPlugin, Plugin};
 use crate::{RegisterExecPlugin, Result};
@@ -34,7 +31,7 @@ pub struct NftSetArgs {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct SetArgs {
-    /// Optional nftables table family (e.g. `inet`).
+    /// Optional nftables table family (such as `inet`).
     pub table_family: Option<String>,
     /// Optional nftables table name.
     pub table: Option<String>,
@@ -54,7 +51,7 @@ impl NftSetPlugin {
     }
 
     /// QuickSetup format: [{ip|ip6|inet},table_name,set_name,{ipv4_addr|ipv6_addr},mask] *2
-    /// e.g. "inet,my_table,my_set,ipv4_addr,24 inet,my_table,my_set,ipv6_addr,48"
+    /// for example "inet,my_table,my_set,ipv4_addr,24 inet,my_table,my_set,ipv6_addr,48"
     pub fn quick_setup(s: &str) -> Result<Self> {
         let fs: Vec<&str> = s.split_whitespace().collect();
         if fs.len() > 2 {

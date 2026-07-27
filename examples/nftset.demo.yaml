@@ -10,7 +10,7 @@
 #   - table: nftables table name
 #   - set: nftables set name
 #   - addr_type: Address type (ipv4_addr or ipv6_addr)
-#   - mask: CIDR prefix length (e.g., 24 for /24, 32 for /32)
+#   - mask: CIDR prefix length (such as 24 for /24, 32 for /32)
 #
 # Examples:
 #   nftset inet,my_table,my_blocklist,ipv4_addr,24                    # IPv4 only, /24 mask

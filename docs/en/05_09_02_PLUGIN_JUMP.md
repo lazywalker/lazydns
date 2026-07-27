@@ -35,8 +35,8 @@ Both forms instruct the runtime to execute the plugin or sequence named `audit_h
 
 ## Differences vs `goto`
 
-- `jump`: Push/return — execute target, then continue caller sequence.
-- `goto`: Replace — stop caller sequence and replace it with target sequence.
+- `jump`: Push/return; execute target, then continue caller sequence.
+- `goto`: Replace; stop caller sequence and replace it with target sequence.
 
 Use `jump` for auxiliary tasks (logging, metrics, checks) that should not permanently alter the caller's flow.
 
@@ -45,5 +45,5 @@ Use `jump` for auxiliary tasks (logging, metrics, checks) that should not perman
 - Jump targets can themselves `jump` to other targets (nested jumps are supported).
 - If a jump target sets `goto_label`, that label will be observed after the target returns and the `PluginHandler` will replace the entire entry sequence with the goto target. Use this intentionally and with caution.
 - The runtime preserves the caller's `RETURN_FLAG` state across jump target execution so that target-local `RETURN_FLAG` settings do not inadvertently stop the caller (see implementation notes in code).
-- Targets passed to `jump` must be registered in the plugin registry (e.g., sequences or exec plugins).
+- Targets passed to `jump` must be registered in the plugin registry (such as sequences or exec plugins).
 

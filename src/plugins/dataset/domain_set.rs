@@ -20,14 +20,14 @@ use tracing::{debug, error, info, warn};
 /// **Full > Domain > Regexp > Keyword**, and returns `true` on the first match.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum MatchType {
-    /// Exact match only (e.g., `full:google.com` matches only `google.com`)
+    /// Exact match only (such as `full:google.com` matches only `google.com`)
     #[default]
     Full,
-    /// Domain and subdomain match (e.g., `domain:google.com` matches `google.com`, `www.google.com`)
+    /// Domain and subdomain match (such as `domain:google.com` matches `google.com`, `www.google.com`)
     Domain,
-    /// Regex pattern match (e.g., `regexp:.+\.google\.com$`)
+    /// Regex pattern match (such as `regexp:.+\.google\.com$`)
     Regexp,
-    /// Keyword/substring match (e.g., `keyword:google` matches any domain containing "google")
+    /// Keyword/substring match (such as `keyword:google` matches any domain containing "google")
     Keyword,
 }
 
@@ -1084,10 +1084,10 @@ mod tests {
 
         // Verify rules were loaded from exps
         let stats = plugin.stats();
-        assert_eq!(stats.full_count, 1, "Should have 1 full rule");
-        assert_eq!(stats.domain_count, 1, "Should have 1 domain rule");
-        assert_eq!(stats.regexp_count, 1, "Should have 1 regexp rule");
-        assert_eq!(stats.keyword_count, 1, "Should have 1 keyword rule");
+        assert_eq!(stats.full_count, 1);
+        assert_eq!(stats.domain_count, 1);
+        assert_eq!(stats.regexp_count, 1);
+        assert_eq!(stats.keyword_count, 1);
 
         // Verify they actually match
         assert!(plugin.matches("google.com"));

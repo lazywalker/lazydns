@@ -149,7 +149,7 @@ impl FileLogConfig {
 ///
 /// lazydns provides a thin wrapper around [lazylog::LogConfig] to:
 /// 1. Maintain a simple, DNS-focused configuration interface
-/// 2. Support domain-specific defaults (e.g., file.enabled)
+/// 2. Support domain-specific defaults (such as file.enabled)
 /// 3. Enable potential future logging backend swapping
 ///
 /// # Conversion to lazylog
@@ -258,7 +258,7 @@ impl LogConfig {
     ///
     /// # Arguments
     ///
-    /// * `log_spec` - Log level specification (e.g., "info", "debug")
+    /// * `log_spec` - Log level specification (such as "info", "debug")
     ///
     /// # Returns
     ///
@@ -311,7 +311,7 @@ pub struct AdminConfig {
     #[serde(default = "default_admin_enabled")]
     pub enabled: bool,
 
-    /// Listen address for admin API (e.g., "127.0.0.1:8000")
+    /// Listen address for admin API (such as "127.0.0.1:8000")
     #[serde(default = "default_admin_addr")]
     pub addr: String,
 }
@@ -340,7 +340,7 @@ pub struct MonitoringConfig {
     #[serde(default = "default_monitoring_enabled")]
     pub enabled: bool,
 
-    /// Listen address for monitoring server (e.g., "127.0.0.1:8001")
+    /// Listen address for monitoring server (such as "127.0.0.1:8001")
     #[serde(default = "default_monitoring_addr")]
     pub addr: String,
 

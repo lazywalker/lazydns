@@ -7,14 +7,14 @@ This document describes the RequestContext refactor that improves the `RequestHa
 
 ## Motivation
 
-Before v0.2.37 the `RequestHandler` trait had a method signature that accepted one parameters for the DNS message and non for the client address. This design had limitations in `ratelimit` extensibility, so we refactored it to add a `client_addr` parameter. However, as we continued to add more metadata (e.g., protocol type for DoH/DoT/DoQ), it became clear that a more scalable solution was needed.
+Before v0.2.37 the `RequestHandler` trait had a method signature that accepted one parameters for the DNS message and non for the client address. This design had limitations in `ratelimit` extensibility, so we refactored it to add a `client_addr` parameter. However, as we continued to add more metadata (such as protocol type for DoH/DoT/DoQ), it became clear that a more scalable solution was needed.
 
 ```rust
 async fn handle(&self, request: Message, client_addr: Option<SocketAddr>) -> Result<Message>;
 ```
 
 This design had several limitations:
-1. **Limited extensibility**: Adding new metadata (e.g., protocol type, TLS info) required changing the trait signature
+1. **Limited extensibility**: Adding new metadata (such as protocol type, TLS info) required changing the trait signature
 2. **Unclear semantics**: Multiple `Option` parameters made the API harder to understand
 3. **Manual propagation**: Callers had to manually pass both parameters separately
 
@@ -147,7 +147,7 @@ This ensures plugins can access client information through the metadata system.
 
 ### Background Tasks
 
-For background tasks (e.g., cache refresh), create a context without client information:
+For background tasks (such as cache refresh), create a context without client information:
 
 ```rust
 // Background refresh - no client information needed

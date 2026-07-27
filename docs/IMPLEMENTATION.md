@@ -22,7 +22,7 @@ Status: IMPLEMENTED (core parsing and record support).
 - DoQ (DNS over QUIC): implemented (`src/server/doq.rs`).
 - Multi-listen, concurrency, connection handling: Implemented via `tokio`-based servers (`src/server/*`).
 
-Status: PARTIAL — UDP/TCP/DoH/DoT/DoQ present, not all features.
+Status: PARTIAL: UDP/TCP/DoH/DoT/DoQ present, not all features.
 
 ## 3. Plugin system
 
@@ -31,12 +31,12 @@ Status: PARTIAL — UDP/TCP/DoH/DoT/DoQ present, not all features.
 
 ### Core plugin coverage (select)
 
-- `forward`: Implemented (`src/plugins/forward.rs`) — supports multiple upstreams and concurrent queries. Transport feature parity (DoH/DoT/DoQ upstream) is partial on transport side.
+- `forward`: Implemented (`src/plugins/forward.rs`); supports multiple upstreams and concurrent queries. Transport feature parity (DoH/DoT/DoQ upstream) is partial on transport side.
 - `cache`: Implemented (`src/plugins/cache.rs`). - TODO: `lazy_cache_ttl`
 - `hosts`: Implemented (`src/plugins/hosts.rs`). Parser supports both ip-first and hostname-first lines, multiple IPs per line, and mixed ordering across files; unit tests verify A/AAAA behavior and hostname-first parsing.
 - `domain_set` / `geosite`: Implemented (`src/plugins/domain_matcher.rs`, `src/plugins/geosite.rs`).
 - `ip_set` / IP matching: Implemented (`src/plugins/ip_matcher.rs`, `src/plugins/data_provider.rs`).
-- `geoip`: Implemented (`src/plugins/geoip.rs`) — GeoIP integration present; check for data loader details.
+- `geoip`: Implemented (`src/plugins/geoip.rs`); GeoIP integration present; check for data loader details.
 
 ### Executable & control plugins
 
@@ -64,9 +64,9 @@ Status: IMPLEMENTED (CLI-based integration). Note: upstream native netlink integ
 ## 4. Configuration system
 
 - YAML config loader and validation: Implemented (`src/config/*`) with `PluginBuilder` and `PluginConfig` parsing. Example configs included in `examples/etc/config.yaml`.
-- Hot reload: partial — `ConfigReloader` exists; verify runtime hot-reload semantics for production.
+- Hot reload: partial; `ConfigReloader` exists, verify runtime hot-reload semantics for production.
 
-Status: PARTIAL — YAML loading and validation implemented; hot-reload present as a reloader component.
+Status: PARTIAL: YAML loading and validation implemented; hot-reload present as a reloader component.
 
 ## 5. Advanced features
 
@@ -74,7 +74,7 @@ Status: PARTIAL — YAML loading and validation implemented; hot-reload present 
 - Observability: metrics and monitoring modules exist (`src/server/monitoring.rs`, `src/metrics` planned). Prometheus-style exposure may be partial.
 - Security: TLS support for DoT/DoH implemented. Certificate handling present in `src/server/tls.rs`.
 
-Status: PARTIAL — basic observability and TLS present; more integrations possible.
+Status: PARTIAL: basic observability and TLS present; more integrations possible.
 
 ## 6. Deployment & management
 
@@ -88,14 +88,14 @@ Status: IMPLEMENTED (basic deployment support present).
 - Unit tests: extensive unit tests across DNS, plugin, and executable modules (run via `cargo test`).
 - Integration tests: added integration tests for the reverse-lookup save hook and ipset/nftset metadata behavior under `tests/`.
 
-Status: IMPLEMENTED — good test coverage; integration tests added for key behaviors.
+Status: IMPLEMENTED: good test coverage; integration tests added for key behaviors.
 
 ## Gaps and recommended next steps
 
 1. DoQ (DNS over QUIC): implement DoQ server and transport support to match upstream feature set.
 2. Replace CLI-based ipset/nft manipulation with native netlink integration (via a Rust netlink crate) for more robust system integration and error handling.
 3. Expand documentation per-plugin (config examples and QuickSetup documentation) and add README snippets linking `examples/etc/config.yaml` to plugin behaviors.
-4. Add further integration tests for multi-plugin sequences (e.g., forward->ipset->ros_addrlist flow) and permissioned system behaviors.
+4. Add further integration tests for multi-plugin sequences (such as forward->ipset->ros_addrlist flow) and permissioned system behaviors.
 5. Verify Prometheus metrics coverage and add exporter where missing.
 
 ## File references (key files)

@@ -161,7 +161,7 @@ You can specify IP rules inline using the `ips` parameter instead of external fi
 
 The `ips` parameter supports:
 - Single IPv4/IPv6 addresses (automatically converted to /32 or /128)
-- CIDR notation (e.g., `192.168.0.0/24`)
+- CIDR notation (such as `192.168.0.0/24`)
 - Mixed IPv4 and IPv6 in the same list
 - All inline rules are processed after file rules
 

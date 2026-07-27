@@ -10,19 +10,19 @@ Bug-fix release focused on correctness of the forward and cache paths under load
 
 - fix(forward): multiplex UDP responses by query id so concurrent queries on the shared socket no longer pick up each other's replies (was the root cause of query/response mismatches such as querying one name and getting the answer for another)
 - fix(forward): a reply landing at the same instant as the timeout could be dropped; the wait now uses a `select` so the response wins the race instead of a spurious timeout
-- fix(forward): average response time was updated with a non-atomic read-modify-write, losing samples under concurrency and skewing the `fastest` upstream selection — switched to a CAS update
+- fix(forward): average response time was updated with a non-atomic read-modify-write, losing samples under concurrency and skewing the `fastest` upstream selection; switched to a CAS update
 - fix(forward): replaced `std::sync::Mutex` with `parking_lot::Mutex` to avoid lock poisoning cascades
 
 **Cache**
 
-- fix(cache): a cached key stayed marked "refreshing" forever after the first successful background refresh, which silently disabled LazyCache prefetch for that key — a completion hook now clears it
+- fix(cache): a cached key stayed marked "refreshing" forever after the first successful background refresh, which silently disabled LazyCache prefetch for that key; a completion hook now clears it
 - fix(cache): deep-clone the cached response before serving so the cached object itself is never mutated; also sync the question section to the current request to avoid query/response mismatches on cache hits
 
 **Servers & config**
 
-- fix(tcp/dot): responses larger than 65535 bytes silently truncated the 2-byte length prefix and corrupted the stream — now clamped with a proper error
+- fix(tcp/dot): responses larger than 65535 bytes silently truncated the 2-byte length prefix and corrupted the stream; now clamped with a proper error
 - fix(doq): the `local_addr()` fallback would always panic if it ever failed; just prints "unknown" now
-- fix(audit): `parse_size` panicked when the size string ended in a multibyte character (e.g. a stray CJK suffix) — rewritten to slice on char boundaries
+- fix(audit): `parse_size` panicked when the size string ended in a multibyte character (such as a stray CJK suffix); rewritten to slice on char boundaries
 - chore: update bundled filter lists (apple-cn, china-ip, direct-list, github-hosts, proxy-list, reject-list)
 
 **Tests**
@@ -165,7 +165,7 @@ Highlights
 
 Important notes & migration
 
-- Prometheus v0.14 raises the MSRV to Rust 1.81 — upgrade your toolchain if you use an older Rust version.
+- Prometheus v0.14 raises the MSRV to Rust 1.81; upgrade your toolchain if you use an older Rust version.
 - If you previously pinned `prometheus = "0.13"`, update to `0.14` or keep the older pin and revert the code changes accordingly.
 
 Files/areas changed in this release (non-exhaustive):

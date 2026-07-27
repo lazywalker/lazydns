@@ -179,7 +179,7 @@ curl http://127.0.0.1:8000/api/server/stats
 
 - Health checks
 - Monitoring dashboards
-- Uptime verification (field `uptime` is included in the response and is formatted as `Nd HH:MM:SS` when >= 1 day, otherwise `HH:MM:SS`, e.g., `21d 15:05:37`)
+- Uptime verification (field `uptime` is included in the response and is formatted as `Nd HH:MM:SS` when >= 1 day, otherwise `HH:MM:SS`, such as `21d 15:05:37`)
 
 
 ---
@@ -480,11 +480,11 @@ fi
 
 ```
 Request fails?
-├─ Network error → Retry with backoff
-├─ 404 Not Found → Check configuration
-├─ 400 Bad Request → Check request format and action
-├─ 500 Internal Server Error → Check logs and plugin status
-└─ 200 OK → Operation succeeded
+├─ Network error: retry with backoff
+├─ 404 Not Found: check configuration
+├─ 400 Bad Request: check request format and action
+├─ 500 Internal Server Error: check logs and plugin status
+└─ 200 OK: operation succeeded
 ```
 
 ## Monitoring Integration
@@ -499,7 +499,7 @@ The Admin API complements the separate [Monitoring Server](MONITORING_USAGE.md) 
 **Note on the Monitoring server `/stats` endpoint aggregation:**
 - The monitoring `/stats` handler computes `total_queries` and `active_connections` by aggregating Prometheus samples from the server registry rather than maintaining separate counters:
   - `total_queries` = sum of all samples of the `dns_queries_total` metric across labels (covers all protocols/label variants).
-  - `active_connections` = sum of all samples of the `dns_active_connections` gauge across labels (covers `udp`, `tcp`, `doh`, `dot`, etc.).
+  - `active_connections` = sum of all samples of the `dns_active_connections` gauge across labels (covers `udp`, `tcp`, `doh`, `dot`, and others).
 - This approach ensures the `/stats` snapshot automatically accounts for newly-added protocols and label combinations without additional bookkeeping. For extreme throughput environments you may prefer to maintain dedicated aggregated metrics at the source for lower latency.
 
 For production monitoring, use both:

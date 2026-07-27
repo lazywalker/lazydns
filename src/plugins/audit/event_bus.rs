@@ -1,7 +1,7 @@
 //! Event bus for audit events
 //!
 //! Provides a publish-subscribe mechanism for distributing audit events
-//! to multiple consumers (WebUI, metrics, alerts, etc.) with backpressure handling.
+//! to multiple consumers (WebUI, metrics, alerts) with backpressure handling.
 
 use super::event::{AuditEvent, QueryLogEntry};
 use parking_lot::RwLock;

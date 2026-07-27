@@ -132,7 +132,6 @@ impl Plugin for DualSelectorPlugin {
                 }
                 IpPreference::IPv4PreferIPv6Fallback => {
                     if has_ipv4 {
-                        // Remove AAAA if we have A
                         answers.retain(|r| r.rtype() != RecordType::AAAA);
                         debug!("Dual selector: Preferring IPv4, removing IPv6");
                     } else {
@@ -141,7 +140,6 @@ impl Plugin for DualSelectorPlugin {
                 }
                 IpPreference::IPv6PreferIPv4Fallback => {
                     if has_ipv6 {
-                        // Remove A if we have AAAA
                         answers.retain(|r| r.rtype() != RecordType::A);
                         debug!("Dual selector: Preferring IPv6, removing IPv4");
                     } else {

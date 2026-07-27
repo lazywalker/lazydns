@@ -49,7 +49,7 @@ use tracing::{debug, info, warn};
 ///
 /// Cron expression format: "minute hour day month weekday" (5 fields).
 /// The parser uses system local timezone by default when timezone is omitted.
-/// To use a specific timezone, append it as the last token (e.g. "0 */6 * * * UTC").
+/// To use a specific timezone, append it as the last token (such as "0 */6 * * * UTC").
 ///
 /// Examples:
 /// - "5 2 * * *" = every day at 02:05 (local time)

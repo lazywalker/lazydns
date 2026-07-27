@@ -67,7 +67,7 @@ impl DomainValidatorPlugin {
     ///
     /// When `qtype` is `Some(RecordType::SVCB)` or `Some(RecordType::HTTPS)`, a
     /// label starting with `_` (underscore) is accepted as the first character
-    /// which is commonly used for service name labels (e.g. `_dns.resolver.arpa`).
+    /// which is commonly used for service name labels (such as `_dns.resolver.arpa`).
     pub fn validate_domain_with_qtype(
         &self,
         domain: &str,
@@ -98,7 +98,7 @@ impl DomainValidatorPlugin {
 
             // First character must be alphanumeric, except when qtype indicates
             // a service-binding record query (SVCB/HTTPS) and the label starts
-            // with an underscore (e.g. `_dns`).
+            // with an underscore (such as `_dns`).
             let first = bytes[0];
             if !first.is_ascii_alphanumeric() {
                 let allow_underscore = (first == b'_')
@@ -399,7 +399,7 @@ mod tests {
 
     /// Punycode "A-labels" (RFC 5890) encode internationalized domain names
     /// and legitimately contain "--" after the "xn-" prefix. Strict mode must
-    /// not reject them; otherwise all IDN queries (e.g. Chinese/Arabic domains)
+    /// not reject them; otherwise all IDN queries (such as Chinese/Arabic domains)
     /// would be refused under the default configuration.
     #[tokio::test]
     async fn test_strict_mode_allows_punycode_labels() {

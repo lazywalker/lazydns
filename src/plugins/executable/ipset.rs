@@ -11,9 +11,6 @@
 //! `"<set_name>,inet,<mask> <set_name6>,inet6,<mask>"` (max two fields).
 //!
 //! Example metadata after execution: `ipset_added = vec![("myset".into(), "192.0.2.0/24".into())]`.
-//!
-//! Note: this file contains only the executable wrapper; logic is small
-//! and intended to be fast and dependency-free.
 use crate::dns::RData;
 use crate::plugin::{Context, ExecPlugin, Plugin};
 use crate::{RegisterExecPlugin, Result};
@@ -28,9 +25,9 @@ const PLUGIN_IPSET_IDENTIFIER: &str = "ipset";
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct IpSetArgs {
-    /// Optional ipset name for IPv4 entries (e.g. "my_ipset_v4").
+    /// Optional ipset name for IPv4 entries (such as "my_ipset_v4").
     pub set_name4: Option<String>,
-    /// Optional ipset name for IPv6 entries (e.g. "my_ipset_v6").
+    /// Optional ipset name for IPv6 entries (such as "my_ipset_v6").
     pub set_name6: Option<String>,
     /// IPv4 prefix length to use when converting A records to CIDR.
     /// Defaults to `Some(24)` in `Default` if not specified.
@@ -62,7 +59,7 @@ impl IpSetPlugin {
     }
 
     /// QuickSetup format: [set_name,{inet|inet6},mask] *2
-    /// e.g. "my_set,inet,24 my_set6,inet6,48"
+    /// for example "my_set,inet,24 my_set6,inet6,48"
     pub fn quick_setup(s: &str) -> Result<Self> {
         let fs: Vec<&str> = s.split_whitespace().collect();
         if fs.len() > 2 {

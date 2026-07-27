@@ -1,4 +1,4 @@
-# Upstream mosdns — Feature Summary
+# Upstream mosdns: Feature Summary
 
 This document summarizes the feature set and implementation notes of the upstream `mosdns` project (source: `IrineSistiana/mosdns`). It highlights core capabilities, transport features, plugins, operational behaviors, and recommended improvements that are relevant when maintaining parity or planning feature work in `lazydns`.
 
@@ -7,16 +7,16 @@ This document summarizes the feature set and implementation notes of the upstrea
 ## 1. Core DNS functionality
 
 - DNS message parsing and serialization (wire format).
-- Support for common record types (A, AAAA, CNAME, MX, NS, PTR, SOA, TXT, SRV) and several less-common types (e.g. SVCB/HTTPS, CAA in type lists).
+- Support for common record types (A, AAAA, CNAME, MX, NS, PTR, SOA, TXT, SRV) and several less-common types (such as SVCB/HTTPS, CAA in type lists).
 - Asynchronous, highly concurrent server model (uses goroutines in upstream; `lazydns` maps to `tokio`).
 
 ## 2. Transports & Servers
 
 - UDP server (standard DNS over UDP).
 - TCP server (DNS over TCP for large responses).
-- DoH (DNS over HTTPS) — HTTP POST `application/dns-message`.
-- DoT (DNS over TLS) — TLS-protected DNS (RFC 7858).
-- DoQ (DNS over QUIC) — planned/experimental in upstream.
+- DoH (DNS over HTTPS): HTTP POST `application/dns-message`.
+- DoT (DNS over TLS): TLS-protected DNS (RFC 7858).
+- DoQ (DNS over QUIC): planned/experimental in upstream.
 - Multi-listen, concurrent handling, and tunable timeouts and limits.
 
 ## 3. Plugins & Extensions (select)
@@ -32,8 +32,8 @@ The upstream project exposes a plugin architecture with numerous built-in plugin
 - rate_limiter: Per-client or global query limiting.
 - ttl: TTL rewrite/clamping plugin (fixed TTL or min/max range).
 - query_summary, metrics_collector: Observability and stats gathering components.
-- control & flow: sequence/parallel/if/goto/return/drop_resp — plugins to build control-flow logic.
-- executable helpers: arbitrary, sleep, debug_print, drop_resp, etc.
+- control & flow: sequence/parallel/if/goto/return/drop_resp; plugins to build control-flow logic.
+- executable helpers: arbitrary, sleep, debug_print, drop_resp.
 
 Note: Many plugins have a `QuickSetup` parsing style and both mnemonic and tag-based config options used by the plugin builder.
 
@@ -68,7 +68,7 @@ Key features and improvements in upstream:
 
 ## 8. Security & Secrets
 
-- Recommendations and docs for secret management (`docs/SECURE_SECRETS.md`) — Docker secrets, Kubernetes secrets, Vault, etc.
+- Recommendations and docs for secret management (`docs/SECURE_SECRETS.md`): Docker secrets, Kubernetes secrets, Vault, and others.
 - Some plugins and helpers are designed to avoid leaking secrets to logs; the env override helper is conscious of secrets handling.
 
 ## 9. Testing & CI Practices

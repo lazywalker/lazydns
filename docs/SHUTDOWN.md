@@ -6,7 +6,7 @@ predictable, observable, and safe graceful shutdown.
 
 Goal
 ----
-- Ensure the system stops accepting new work, allows in‑flight work to
+- Ensure the system stops accepting new work, allows in-flight work to
   complete within configurable bounds, and then releases background
   resources (watchers, job tasks, connection endpoints) in a deterministic
   order with timeouts and observability.
@@ -17,7 +17,7 @@ Principles
   shared resources.
 - Reverse init order: shut down components in the inverse order of their
   initialization (consumers before providers) to avoid use-after-free.
-- Fail‑fast after bounded wait: honor configurable timeouts and then
+- Fail-fast after bounded wait: honor configurable timeouts and then
   proceed with best-effort forced cleanup while logging failures.
 - Make shutdown triggers explicit: accept OS signals, admin API calls, or
   programmatic requests, and route them through a single coordinator.
@@ -27,16 +27,16 @@ Shutdown Phases (high level)
 1. Trigger: a signal (Ctrl-C, SIGTERM), Admin request, or other controller
    publishes a shutdown event to the ShutdownCoordinator.
 2. Stop producing new work (drain): each server stops accepting new
-   connections/requests (e.g. axum `graceful_shutdown`, quinn Endpoint
+   connections/requests (such as axum `graceful_shutdown`, quinn Endpoint
    close, TcpListener shutdown) and returns early for new clients.
-3. Drain wait: wait for in‑flight requests to finish (use a global active
-   request counter or per‑server counters). Wait is bounded by
+3. Drain wait: wait for in-flight requests to finish (use a global active
+   request counter or per-server counters). Wait is bounded by
    `drain_timeout` configuration.
-4. Pre‑shutdown of active generators: stop job producers (Cron, watchers,
+4. Pre-shutdown of active generators: stop job producers (Cron, watchers,
    plugin-internal repeaters) so they don't create more work during shutdown.
 5. Plugin Shutdown: call `shutdown()` (via the `as_shutdown()` bridge) on
-   plugins in reverse registration/initialization order. Use per‑plugin
-   timeouts (e.g. `plugin_shutdown_timeout`). Prefer serial inverse order
+   plugins in reverse registration/initialization order. Use per-plugin
+   timeouts (such as `plugin_shutdown_timeout`). Prefer serial inverse order
    by default; allow optional parallel groups when safe.
 6. Final cleanup: close global resources (metrics exporters, temp files,
    thread pools), await remaining JoinHandles with overall `global_shutdown_timeout`.
@@ -50,7 +50,7 @@ Servers: service-specific notes
 
 - DoQ (`src/server/doq.rs`)
   - QUIC endpoints must be explicitly closed (call `Endpoint::close` or
-    `Endpoint::server` shutdown) and per‑connection tasks awaited. This is
+    `Endpoint::server` shutdown) and per-connection tasks awaited. This is
     resource sensitive; treat DoQ shutdown as high priority.
 
 - DoT (`src/server/dot.rs`) and TCP (`src/server/tcp.rs`)
@@ -69,11 +69,11 @@ Plugin shutdown ordering
   `plugin.shutdown().await` (or use the `as_shutdown()` bridge when the
   `Plugin` trait object is used).
 - Classification:
-  - High-priority shutdown: plugins that spawn long‑lived tasks,
+  - High-priority shutdown: plugins that spawn long-lived tasks,
     watchers, or hold outside resource handles (Cron, dataset watchers,
     any connection pools or background workers). These should be stopped
     early in the plugin shutdown phase (right after draining input).
-  - Low-priority shutdown: stateless per‑request plugins can be shut
+  - Low-priority shutdown: stateless per-request plugins can be shut
     later (or omitted if they have no shutdown behavior).
 - Dependency awareness: if a plugin A depends explicitly on plugin B,
   ensure A is shut down before B. If dependency graphs exist, compute a
@@ -83,13 +83,13 @@ Coordinator API (suggested)
 ---------------------------
 Provide a small `ShutdownCoordinator` that exposes:
 
-- `fn signal_shutdown(&self)` — trigger shutdown (used by signal/HTTP handlers)
-- `async fn wait_for_drained(&self, timeout: Duration)` — wait for active
+- `fn signal_shutdown(&self)`: trigger shutdown (used by signal/HTTP handlers)
+- `async fn wait_for_drained(&self, timeout: Duration)`: wait for active
   requests to reach zero or timeout
-- `fn register_active_request(&self)` / `fn unregister_active_request(&self)`
-  — helpers (or use RAII guard) to track in‑flight work
-- `async fn shutdown_plugins(&self, registry: &Registry)` — iterates
-  reverse order and calls plugin shutdowns with per‑plugin timeout
+- `fn register_active_request(&self)` / `fn unregister_active_request(&self)`:
+  helpers (or use RAII guard) to track in-flight work
+- `async fn shutdown_plugins(&self, registry: &Registry)`: iterates
+  reverse order and calls plugin shutdowns with per-plugin timeout
 
 Example Rust signature (pseudocode)
 
@@ -106,9 +106,9 @@ impl ShutdownCoordinator {
 
 Timeouts and configuration
 --------------------------
-- `drain_timeout` (global): how long to wait for in‑flight requests before
+- `drain_timeout` (global): how long to wait for in-flight requests before
   forcing plugin shutdown (default: 10s).
-- `plugin_shutdown_timeout`: per‑plugin timeout (default: 5s).
+- `plugin_shutdown_timeout`: per-plugin timeout (default: 5s).
 - `global_shutdown_timeout`: total bound for full shutdown (default: 30s).
 
 Observability and logging
@@ -128,8 +128,8 @@ Testing
 -------
 - Unit tests for coordinator logic: simulate active requests, trigger
   shutdown, assert drain behavior and timeouts.
-- Integration tests: spawn servers that accept a long‑running request,
-  trigger shutdown, verify new requests are refused, in‑flight completes
+- Integration tests: spawn servers that accept a long-running request,
+  trigger shutdown, verify new requests are refused, in-flight completes
   or times out, and plugin shutdowns are invoked in expected order.
 
 Implementation roadmap (next steps)

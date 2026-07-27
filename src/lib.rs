@@ -9,7 +9,7 @@
 //! - `dns`: DNS protocol implementation (parsing, serialization, message handling)
 //! - `server`: DNS server implementations (UDP, TCP, DoH, DoT, DoQ)
 //! - `plugin`: Plugin system architecture and core plugin trait
-//! - `plugins`: Collection of DNS plugins (forward, cache, hosts, etc.)
+//! - `plugins`: Collection of DNS plugins (forward, cache, hosts, and others)
 //! - `config`: Configuration loading and validation
 //! - `error`: Error types and handling
 //!
@@ -73,12 +73,12 @@ pub mod error {
     /// Main error type for lazydns
     #[derive(Error, Debug)]
     pub enum Error {
-        // ============ DNS Protocol Errors ============
+        // DNS Protocol Errors
         /// DNS protocol error
         #[error("DNS protocol error: {0}")]
         DnsProtocol(String),
 
-        // ============ Upstream Errors ============
+        // Upstream Errors
         /// Upstream server timeout
         #[error("Upstream timeout: {upstream} ({timeout_ms}ms)")]
         UpstreamTimeout {
@@ -88,7 +88,7 @@ pub mod error {
             timeout_ms: u64,
         },
 
-        // ============ Configuration Errors ============
+        // Configuration Errors
         /// Configuration error (legacy, prefer structured variants)
         #[error("Configuration error: {0}")]
         Config(String),
@@ -98,7 +98,7 @@ pub mod error {
         MissingConfigField {
             /// The missing field name
             field: String,
-            /// Configuration context (e.g., plugin name)
+            /// Configuration context (such as plugin name)
             context: String,
         },
 
@@ -113,12 +113,12 @@ pub mod error {
             reason: String,
         },
 
-        // ============ Plugin Errors ============
+        // Plugin Errors
         /// Plugin error (legacy, prefer structured variants)
         #[error("Plugin error: {0}")]
         Plugin(String),
 
-        // ============ Network Errors ============
+        // Network Errors
         /// Network connection error
         #[error("Connection error to {address}: {reason}")]
         Connection {
@@ -135,7 +135,7 @@ pub mod error {
             input: String,
         },
 
-        // ============ File/IO Errors ============
+        // File/IO Errors
         /// IO error
         #[error("IO error: {0}")]
         Io(#[from] std::io::Error),
@@ -149,7 +149,7 @@ pub mod error {
             reason: String,
         },
 
-        // ============ Generic Errors ============
+        // Generic Errors
         /// Other error (legacy, try to use specific variants)
         #[error("Error: {0}")]
         Other(String),

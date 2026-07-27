@@ -115,14 +115,14 @@ fn validate_socket_addr(addr: &str, context: &str) -> Result<()> {
         // ":::port" -> "[::]:port" (IPv6 wildcard)
         format!("[::]:{}", port)
     } else if let Some(rest) = addr.strip_prefix("::") {
-        // Check if it's "::" followed by IPv6 address and port (e.g., "::1:8080")
-        // or just "::port" (e.g., "::8080")
+        // Check if it's "::" followed by IPv6 address and port (such as "::1:8080")
+        // or just "::port" (such as "::8080")
         if let Some(last_colon) = rest.rfind(':') {
             if last_colon > 0 {
                 // Has more than just "" after "::" before the last colon
                 // Check if everything after the last colon is a valid port number
                 if rest[last_colon + 1..].parse::<u16>().is_ok() {
-                    // It's an IPv6 address with port (e.g., "::1:8080")
+                    // It's an IPv6 address with port (such as "::1:8080")
                     let ip_part = &rest[..last_colon];
                     let port_part = &rest[last_colon + 1..];
                     format!("[::{}]:{}", ip_part, port_part)
@@ -135,7 +135,7 @@ fn validate_socket_addr(addr: &str, context: &str) -> Result<()> {
                 format!("[::]:{}", rest)
             }
         } else if rest.parse::<u16>().is_ok() {
-            // No colon in rest, but rest is a valid port number (e.g., "::8080")
+            // No colon in rest, but rest is a valid port number (such as "::8080")
             // This is IPv6 wildcard shorthand: "::port" -> "[::]:port"
             format!("[::]:{}", rest)
         } else {

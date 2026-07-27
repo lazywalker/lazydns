@@ -296,7 +296,7 @@ impl RefreshCoordinator {
                     // Remove from processing set
                     processing.remove(&key);
 
-                    // Notify completion callback so callers (e.g. CachePlugin)
+                    // Notify completion callback so callers (such as CachePlugin)
                     // can clean up their own dedup state. This runs for every
                     // outcome (success/failure/timeout) to guarantee no key is
                     // left permanently locked in the caller's dedup set.
@@ -359,7 +359,7 @@ mod tests {
         // Verify coordinator is running
         {
             let handles = coordinator.worker_handles.lock().await;
-            assert_eq!(handles.len(), 2, "Should have 2 worker handles");
+            assert_eq!(handles.len(), 2);
         }
 
         // Shutdown coordinator
@@ -388,7 +388,7 @@ mod tests {
 
         {
             let handles = coordinator.worker_handles.lock().await;
-            assert_eq!(handles.len(), 4, "Should have 4 worker handles");
+            assert_eq!(handles.len(), 4);
         }
 
         let _ = coordinator.shutdown().await;

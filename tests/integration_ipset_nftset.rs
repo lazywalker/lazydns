@@ -9,8 +9,6 @@ async fn integration_ipset_sequence() {
     use lazydns::plugins::executable::ipset::{IpSetArgs, IpSetPlugin};
     use lazydns::plugins::{ArbitraryPlugin, SequencePlugin, SequenceStep};
 
-    // no cwd changes required — tests use constructed messages
-
     // IpSet plugin configured to add to "myset"
     let args = IpSetArgs {
         set_name4: Some("myset".into()),
@@ -78,8 +76,6 @@ async fn integration_nftset_sequence() {
     use lazydns::plugin::Plugin;
     use lazydns::plugins::executable::nftset::{NftSetArgs, NftSetPlugin, SetArgs};
     use lazydns::plugins::{ArbitraryPlugin, SequencePlugin, SequenceStep};
-
-    // no cwd changes required — tests use constructed messages
 
     let sa = SetArgs {
         table_family: Some("inet".into()),

@@ -66,7 +66,7 @@ impl UpstreamRegistry {
 
     /// Register an upstream
     ///
-    /// The key should be unique (e.g., "plugin_name:address")
+    /// The key should be unique (such as "plugin_name:address")
     pub fn register<F>(
         &self,
         key: String,
@@ -118,7 +118,7 @@ impl UpstreamRegistry {
                 // We can only compute elapsed time from tokio::Instant
                 let last_success = data.last_success.map(|instant| {
                     let elapsed_secs = instant.elapsed().as_secs();
-                    // Format as relative time for now (e.g., "5s ago", "2m ago")
+                    // Format as relative time for now (such as "5s ago", "2m ago")
                     if elapsed_secs < 60 {
                         format!("{}s ago", elapsed_secs)
                     } else if elapsed_secs < 3600 {

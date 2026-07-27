@@ -13,7 +13,7 @@
 //! - **ip_matcher**: Match response IPs against CIDR ranges
 //! - **geoip**: Geographic IP address matching
 //! - **geosite**: Geographic domain name matching
-//! - **advanced**: Upstream control/utility plugins (TTL rewrite, blackhole, etc.)
+//! - **advanced**: Upstream control/utility plugins (TTL rewrite, blackhole)
 //!
 //! # Example
 //!

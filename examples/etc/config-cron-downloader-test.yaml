@@ -3,7 +3,7 @@
 # Set cron to trigger every 10 seconds for testing
 
 plugins:
-  # Load domain blocklists (Ad, etc.)
+  # Load domain blocklists (Ad, and others)
   - tag: domain_reject_list
     type: domain_set
     args:

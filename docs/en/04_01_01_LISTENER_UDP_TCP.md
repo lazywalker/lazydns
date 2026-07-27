@@ -55,7 +55,7 @@ plugins:
 - **Port 53**: Standard DNS port. Requires root privileges on Unix systems. For testing, use higher ports like 5353.
 - **IPv6**: Use addresses like "[::]:53" for IPv6.
 - **Multiple Servers**: You can run multiple UDP/TCP servers on different addresses/ports.
-- **Entry Plugin**: The `entry` should reference a valid plugin sequence (e.g., `sequence_main` as defined in your config).
+- **Entry Plugin**: The `entry` should reference a valid plugin sequence (such as `sequence_main` as defined in your config).
 - **Performance**: UDP is typically faster for small queries; TCP handles larger responses and is more reliable over unreliable networks.
 
 ## Implementation Details

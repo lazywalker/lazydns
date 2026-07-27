@@ -10,10 +10,10 @@ recommended as a starting point.
 - `log`: logging configuration
 - `admin`: admin API settings (enable, listen address)
 - `metrics`: monitoring/Prometheus settings
-- `plugins`: ordered list of plugin declarations (data providers, processors, servers, etc.)
+- `plugins`: ordered list of plugin declarations (data providers, processors, servers, and others)
 
-Note: the legacy `server` section is no longer used — server listeners are configured as
-plugins (e.g. `udp_server`, `tcp_server`, `doh_server`, `dot_server`, `doq_server`).
+Note: the legacy `server` section is no longer used; server listeners are configured as
+plugins (such as `udp_server`, `tcp_server`, `doh_server`, `dot_server`, `doq_server`).
 
 ## Minimal example
 
@@ -88,14 +88,14 @@ Example:
 
 - Sequence/fallback logic
   - `sequence` plugin `args` is an ordered array of steps. Steps support keys like:
-    - `exec`: a plugin tag or quick-setup (e.g. `accept`, `drop_resp`)
-    - `matches`: a condition (e.g. `qname $domain_list`, `has_resp`, `qtype 1`)
+    - `exec`: a plugin tag or quick-setup (such as `accept`, `drop_resp`)
+    - `matches`: a condition (such as `qname $domain_list`, `has_resp`, `qtype 1`)
     - `jump`: jump to another sequence tag
   - `fallback` plugin accepts `primary`, `secondary`, `threshold`, `always_standby`.
 
 - Server plugins (udp_server, tcp_server, doh_server, dot_server, doq_server)
   - `entry`: the sequence tag to use as the processing entry point
-  - `listen`: address and port (e.g. `:5354` or `127.0.0.1:5354`)
+  - `listen`: address and port (such as `:5354` or `127.0.0.1:5354`)
   - TLS servers (`doh`, `dot`, `doq`) accept `cert_file` and `key_file` paths
 
 ## Paths and updates
@@ -111,7 +111,7 @@ Example:
 - Start from `examples/config.example.yaml` for a compact, runnable configuration.
 - Look at `examples/etc/config.yaml` for a more complete demo combining downloader, cron,
   dataset providers, cache and server plugins.
-- Sample dataset files live under `examples/etc/` (e.g. `direct-list.txt`, `gfw.txt`,
+- Sample dataset files live under `examples/etc/` (such as `direct-list.txt`, `gfw.txt`,
   `china-ip-list.txt`) and are good templates for building your own lists.
 
 ## Further reading

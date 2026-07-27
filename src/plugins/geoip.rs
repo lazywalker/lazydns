@@ -79,7 +79,7 @@ impl GeoIpPlugin {
     ///
     /// # Arguments
     ///
-    /// * `country_code` - ISO 3166-1 alpha-2 country code (e.g., "US", "CN")
+    /// * `country_code` - ISO 3166-1 alpha-2 country code (such as "US", "CN")
     /// * `cidr` - CIDR range for the country
     ///
     /// # Example
@@ -223,8 +223,6 @@ impl Plugin for GeoIpPlugin {
                 context.set_metadata(self.metadata_key.clone(), country.clone());
 
                 debug!("GeoIP: IP {} belongs to country {}", ip, country);
-
-                // Return after first match
                 return Ok(());
             }
         }

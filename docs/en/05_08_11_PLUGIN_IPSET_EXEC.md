@@ -14,8 +14,8 @@ plugins:
 
 ## Args (programmatic / config)
 
-- `set_name4` / `set_name6` — optional set names for IPv4/IPv6.
-- `mask4` / `mask6` — prefix lengths used to convert single A/AAAA addresses into CIDRs.
+- `set_name4` / `set_name6`: optional set names for IPv4/IPv6.
+- `mask4` / `mask6`: prefix lengths used to convert single A/AAAA addresses into CIDRs.
 
 ## Behavior
 
@@ -24,8 +24,8 @@ plugins:
 
 ## Metadata
 
-- `ipset_added`: Vec<(String, String)> — entries added (set, cidr).
+- `ipset_added` (Vec<(String, String)>): entries added (set, cidr).
 
 ## When to use
 
-- Use to dynamically populate firewall address sets based on DNS responses (e.g., blocklists, sinkhole automation).
+- Use to dynamically populate firewall address sets based on DNS responses (such as blocklists, sinkhole automation).

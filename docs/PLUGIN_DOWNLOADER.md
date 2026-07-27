@@ -73,7 +73,7 @@ Handles the actual file downloads with robust error handling and atomic updates.
 
 - Downloads multiple files with configurable timeout
 - Supports both sequential and concurrent download modes
-- Atomic file operations (temp → rename) prevents partial updates
+- Atomic file operations (temp, then rename) prevents partial updates
 - Built-in retry mechanism for network errors
 - Detailed logging of download progress and results
 
@@ -147,9 +147,9 @@ DNS Query (e.g., facebook.com)
     ▼
 Check domain_gfw matcher (uses updated gfw.txt)
     │
-    ├─ Found → Forward to upstream_proxy
+    ├─ Found: forward to upstream_proxy
     │
-    └─ Not found → Forward to upstream_direct
+    └─ Not found: forward to upstream_direct
 ```
 
 ## Configuration Examples
@@ -449,7 +449,7 @@ if let Some(plugin_tag) = args.get("plugin") {
 
 ### Custom File Processing
 
-For formats requiring transformation (e.g., dnsmasq → POSIX domain list):
+For formats requiring transformation (such as dnsmasq → POSIX domain list):
 
 ```yaml
 # Download raw dnsmasq format

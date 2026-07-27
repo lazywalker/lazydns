@@ -1,7 +1,7 @@
 
 # Accept Plugin
 
-`accept` finalizes the current response and stops execution of further rules and parent sequences. It does not modify response records — it only signals that the current response should be treated as final.
+`accept` finalizes the current response and stops execution of further rules and parent sequences. It does not modify response records; it only signals that the current response should be treated as final.
 
 ## Exec quick-setup
 
@@ -15,7 +15,7 @@
 
 - When executed, `accept` sets the internal return flag and immediately halts further sequence execution.
 - It does not change response contents or metadata (other than the return flag).
-- If there is no response present when `accept` runs, it still halts execution — it does not synthesize a response.
+- If there is no response present when `accept` runs, it still halts execution; it does not synthesize a response.
 
 ## When to use
 
@@ -32,5 +32,5 @@
 - exec: accept
 ```
 
-- Use `accept` to stop a rule chain once a desired condition is met (e.g., a match or successful upstream reply).
+- Use `accept` to stop a rule chain once a desired condition is met (such as a match or successful upstream reply).
 

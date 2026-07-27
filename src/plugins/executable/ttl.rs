@@ -4,7 +4,7 @@ use crate::plugin::{Context, ExecPlugin, Plugin};
 /// or enforce a minimum/maximum TTL range. Use `fix` to set all TTLs to
 /// an exact value (>0); otherwise `min` and/or `max` are applied.
 ///
-/// Quick setup strings are supported via `quick_setup`, e.g. "60" (fix=60)
+/// Quick setup strings are supported via `quick_setup`, for example "60" (fix=60)
 /// or "30-300" (min=30, max=300).
 use crate::{RegisterExecPlugin, Result};
 use async_trait::async_trait;
@@ -99,7 +99,6 @@ impl fmt::Debug for TtlPlugin {
 
 #[async_trait]
 impl Plugin for TtlPlugin {
-    /// Return the plugin name used in configuration.
     fn name(&self) -> &str {
         "ttl"
     }

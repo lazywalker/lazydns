@@ -1,4 +1,4 @@
-//! Audit logger — publishes query logs and security events to the event bus.
+//! Audit logger: publishes query logs and security events to the event bus.
 //!
 //! This is the in-memory data source for the WebUI real-time streams and the
 //! alert engine. File-based logging has been removed; all consumers subscribe
@@ -13,7 +13,7 @@ use tracing::{info, trace};
 
 /// Global audit logger instance.
 ///
-/// Lazily initialized on first access. No explicit `init()` is required —
+/// Lazily initialized on first access. No explicit `init()` is required;
 /// the event bus is initialized at startup when the `web` feature is on.
 pub static AUDIT_LOGGER: Lazy<AuditLogger> = Lazy::new(AuditLogger::new);
 

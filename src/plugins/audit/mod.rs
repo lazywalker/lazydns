@@ -1,7 +1,7 @@
 //! Audit subsystem (web feature internal).
 //!
 //! Provides DNS query logging and security event tracking via the event bus.
-//! Compiled with the `web` feature and operates automatically — no user
+//! Compiled with the `web` feature and operates automatically; no user
 //! configuration or plugin registration is required.
 //!
 //! - Query logging: `PluginHandler::handle()` calls [`plugin::log_query_for_context`]

@@ -77,7 +77,7 @@ impl MonitoringServer {
     ///
     /// # Arguments
     ///
-    /// * `addr` - Address to bind to (e.g., "0.0.0.0:8001")
+    /// * `addr` - Address to bind to (such as "0.0.0.0:8001")
     ///
     /// # Example
     ///
@@ -186,7 +186,7 @@ async fn health_handler(State(state): State<Arc<MonitoringState>>) -> Response {
 /// Notes:
 /// - `total_queries` is computed by summing all samples of the `dns_queries_total` metric
 ///   across label combinations. This avoids maintaining separate aggregation state and
-///   automatically covers new labels/protocols (e.g., `udp`, `tcp`, `doh`, `dot`, `doq`).
+///   automatically covers new labels/protocols (such as `udp`, `tcp`, `doh`, `dot`, `doq`).
 /// - `active_connections` is computed by summing all samples of the `dns_active_connections`
 ///   gauge metric; this includes all protocol labels and thus reflects the total active
 ///   connections across protocols.

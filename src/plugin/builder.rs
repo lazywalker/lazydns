@@ -15,10 +15,6 @@ use std::sync::Arc;
 use tracing::trace;
 use tracing::{debug, error, info, warn};
 
-// ============================================================================
-// Main Plugin Builder (Configuration-based Plugin Creation)
-// ============================================================================
-
 /// Plugin builder that creates plugin instances from configuration
 pub struct PluginBuilder {
     /// Registry of named plugins for reference

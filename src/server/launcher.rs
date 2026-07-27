@@ -832,7 +832,7 @@ impl ServerLauncher {
                 interval_ms: mem_cfg.interval_ms,
             };
             let _memory_handle = crate::metrics::memory::start_memory_metrics_collector(mem_config);
-            // Note: handle is dropped but task continues running in background
+            // dropped here; the collector task keeps running in the background
         }
 
         let (startup_tx, startup_rx) = tokio::sync::oneshot::channel();
@@ -1069,7 +1069,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let _receivers = launcher.launch_all(&plugins).await;
-            // Note: We don't wait for receivers in tests as servers run indefinitely
+            // receivers aren't awaited: the servers run indefinitely
         });
     }
 
@@ -1091,7 +1091,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let _receivers = launcher.launch_all(&plugins).await;
-            // Note: We don't wait for receivers in tests as servers run indefinitely
+            // receivers aren't awaited: the servers run indefinitely
         });
     }
 
@@ -1215,7 +1215,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let _receivers = launcher.launch_all(&plugins).await;
-            // Note: We don't wait for receivers in tests as servers run indefinitely
+            // receivers aren't awaited: the servers run indefinitely
         });
     }
 
@@ -1247,7 +1247,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let _receivers = launcher.launch_all(&plugins).await;
-            // Note: We don't wait for receivers in tests as servers run indefinitely
+            // receivers aren't awaited: the servers run indefinitely
         });
     }
 
@@ -1279,7 +1279,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let _receivers = launcher.launch_all(&plugins).await;
-            // Note: We don't wait for receivers in tests as servers run indefinitely
+            // receivers aren't awaited: the servers run indefinitely
         });
     }
 

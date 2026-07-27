@@ -1,8 +1,8 @@
 //! DNS protocol type definitions
 //!
 //! This module defines the core DNS types including:
-//! - Record types (A, AAAA, CNAME, etc.)
-//! - Record classes (IN, CH, etc.)
+//! - Record types (A, AAAA, CNAME)
+//! - Record classes (IN, CH)
 //! - Operation codes
 //! - Response codes
 
@@ -10,7 +10,7 @@ use std::fmt;
 
 /// DNS record type
 ///
-/// Represents the type of DNS record (A, AAAA, CNAME, etc.)
+/// Represents the type of DNS record (A, AAAA, CNAME)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u16)]
 pub enum RecordType {

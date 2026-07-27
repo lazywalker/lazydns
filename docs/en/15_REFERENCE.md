@@ -3,7 +3,7 @@
 PLACEHOLDER: This section provides detailed reference material for users and developers.
 
 ## CLI reference
-Flags and descriptions (e.g., `--config`, `--dir`, `-v` verbosity).
+Flags and descriptions (such as `--config`, `--dir`, `-v` verbosity).
 
 ## Configuration schema
 Field reference with types and defaults (link to `config` module docs where possible).

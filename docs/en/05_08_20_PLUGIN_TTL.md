@@ -9,7 +9,7 @@
 
 ## Args
 
-- `ttl`: fixed TTL (integer) — alternative to quick-setup
+- `ttl` (integer): fixed TTL. Alternative to quick-setup.
 
 ## Behavior
 

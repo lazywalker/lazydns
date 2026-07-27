@@ -4,7 +4,7 @@
 
  ## Exec quick-setup
 
- - Quick: `prefer_ipv4` — use as `exec: prefer_ipv4` to strip AAAA records from the current response.
+ - Quick: `prefer_ipv4` (use as `exec: prefer_ipv4` to strip AAAA records from the current response).
 
  ## Args
 

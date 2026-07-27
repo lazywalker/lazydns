@@ -6,7 +6,7 @@
 //! # Features
 //!
 //! - **Country/region matching**: Match domains by country/region
-//! - **Category support**: Support for domain categories (e.g., "cn", "geolocation-!cn")
+//! - **Category support**: Support for domain categories (such as "cn", "geolocation-!cn")
 //! - **Multiple domains**: Single category can contain many domains
 //! - **Wildcard support**: Suffix matching for domains
 //!
@@ -58,7 +58,7 @@ pub struct GeoSitePlugin {
 struct DomainSet {
     /// Exact domain matches
     exact: HashSet<String>,
-    /// Suffix patterns (e.g., "example.com" matches "*.example.com")
+    /// Suffix patterns (such as "example.com" matches "*.example.com")
     suffixes: HashSet<String>,
 }
 
@@ -128,7 +128,7 @@ impl GeoSitePlugin {
     ///
     /// # Arguments
     ///
-    /// * `category` - Category name (e.g., "cn", "us", "ads")
+    /// * `category` - Category name (such as "cn", "us", "ads")
     /// * `domain` - Domain name
     ///
     /// # Example

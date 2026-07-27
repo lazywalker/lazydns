@@ -127,7 +127,7 @@ plugins:
   # Data Providers - Load DNS rule files
   # ========================================================================
 
-  # Load domain blocklists (Ad, etc.)
+  # Load domain blocklists (Ad, and others)
   - tag: domain_reject_list
     type: domain_set
     args:
@@ -187,7 +187,7 @@ plugins:
           #   "5 2 * * *" = every day at 02:05 (local time)
           #   "0 */6 * * *" = every 6 hours at minute 0 (00:00, 06:00, 12:00, 18:00 local time)
           #   "0 * * * *" = every hour at minute 0
-          # You may optionally append a TZ name as the last token: e.g. "0 */6 * * * UTC"
+          # You may optionally append a TZ name as the last token: for example "0 */6 * * * UTC"
           cron: "10 2  * * *"
           action:
             invoke_plugin:
@@ -238,7 +238,7 @@ plugins:
   # Audit / Query Logging
   # ========================================================================
   # NOTE: Audit logging (query logs + security events) is now automatic when
-  # the `web` feature is enabled — no plugin configuration needed. Data is
+  # the `web` feature is enabled; no plugin configuration needed. Data is
   # published to the internal event bus and consumed by the WebUI real-time
   # streams and the alert engine.
 
@@ -516,5 +516,5 @@ log:
 # For production deployments:
 #   - Monitor logs for download failures: grep "download failed" logs/lazydns.log
 #   - Verify file sizes after update: ls -la *.txt
-#   - Consider downloading during off-peak hours (e.g., 03:05 UTC instead of 02:05)
+#   - Consider downloading during off-peak hours (such as 03:05 UTC instead of 02:05)
 #   - Set timeout_secs based on file sizes and network speed

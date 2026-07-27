@@ -33,7 +33,7 @@ pub struct MetricsCollector {
     cache_hits: AtomicU64,
     /// Cache misses
     cache_misses: AtomicU64,
-    /// Error responses (SERVFAIL, etc.)
+    /// Error responses (SERVFAIL and others)
     error_responses: AtomicU64,
     /// Blocked queries
     blocked_queries: AtomicU64,
@@ -89,7 +89,6 @@ impl MetricsCollector {
 
     /// Process a query log entry
     fn process_query(&self, entry: &QueryLogEntry) {
-        // Increment total queries
         self.total_queries.fetch_add(1, Ordering::Relaxed);
 
         // Track QPS

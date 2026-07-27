@@ -161,40 +161,32 @@ impl CacheStats {
         Self::default()
     }
 
-    /// Increment hit counter
     fn record_hit(&self) {
         self.hits.fetch_add(1, Ordering::Relaxed);
-        // Update Prometheus metric
         #[cfg(feature = "metrics")]
         {
             metrics::CACHE_HITS_TOTAL.inc();
         }
     }
 
-    /// Increment miss counter
     fn record_miss(&self) {
         self.misses.fetch_add(1, Ordering::Relaxed);
-        // Update Prometheus metric
         #[cfg(feature = "metrics")]
         {
             metrics::CACHE_MISSES_TOTAL.inc();
         }
     }
 
-    /// Increment eviction counter
     fn record_eviction(&self) {
         self.evictions.fetch_add(1, Ordering::Relaxed);
-        // Update Prometheus metric
         #[cfg(feature = "metrics")]
         {
             crate::metrics::DNS_CACHE_EVICTIONS_TOTAL.inc();
         }
     }
 
-    /// Increment expiration counter
     fn record_expiration(&self) {
         self.expirations.fetch_add(1, Ordering::Relaxed);
-        // Update Prometheus metric
         #[cfg(feature = "metrics")]
         {
             crate::metrics::DNS_CACHE_EXPIRATIONS_TOTAL.inc();
@@ -324,7 +316,7 @@ impl fmt::Display for LazyCacheStats {
 ///
 /// LazyCache is an optimization that refreshes cached entries in the background
 /// before they expire, preventing cache misses and query latency spikes.
-/// When enabled, if a cached entry's TTL drops below the threshold (e.g., 10%),
+/// When enabled, if a cached entry's TTL drops below the threshold (such as 10%),
 /// the entry is marked for lazy refresh. A background task or next access
 /// will trigger a refresh query to keep the cache warm.
 #[derive(Clone, RegisterPlugin, ShutdownPlugin)]
@@ -634,7 +626,7 @@ impl CachePlugin {
 
             // Pack DNSSEC-relevant flags into a single byte so that queries
             // with different DNSSEC expectations are cached separately.
-            // This prevents, e.g., serving a DNSSEC-enabled response (with
+            // This prevents, for example, serving a DNSSEC-enabled response (with
             // RRSIG records) to a client that did not request DNSSEC.
             //
             // RFC 6840 §5.7 (AD), RFC 4035 (CD), RFC 6891 §6.1.3 (DO).
@@ -761,7 +753,7 @@ impl CachePlugin {
 
     /// Trigger a background refresh of `key`, de-duplicated via `refreshing_keys`.
     ///
-    /// `label` is a short tag (e.g. "stale-serving TTL", "LazyCache") used in
+    /// `label` is a short tag (such as "stale-serving TTL", "LazyCache") used in
     /// log messages to tell the two call sites apart. This factors out logic
     /// that was previously duplicated verbatim by the stale-serving path and
     /// the LazyCache threshold path.
@@ -891,7 +883,7 @@ impl Plugin for CachePlugin {
         };
 
         // Check if cache was already checked in this request to avoid double-counting misses
-        // (e.g., when fallback retries the entire sequence)
+        // (such as when fallback retries the entire sequence)
         let cache_already_checked = context.get_metadata::<bool>("cache_checked").is_some();
 
         // Check if response is already from cache (from a previous execution of this plugin)
@@ -1014,8 +1006,8 @@ impl Plugin for CachePlugin {
                                 ttl_percentage * 100.0,
                                 threshold * 100.0
                             );
-                            // Note: refresh attempt is recorded inside
-                            // spawn_background_refresh; do not double-count here.
+                            // refresh attempt is recorded inside spawn_background_refresh;
+                            // don't double-count here.
                             true
                         } else {
                             false
@@ -1182,7 +1174,7 @@ impl Plugin for CachePlugin {
         }
 
         // Create refresh coordinator if lazycache or cache_ttl is enabled.
-        // Worker count and queue capacity are internal constants — not user-tunable.
+        // Worker count and queue capacity are internal constants, not user-tunable.
         const REFRESH_WORKER_COUNT: usize = 4;
         const REFRESH_QUEUE_CAPACITY: usize = 1000;
         if cache.enable_lazycache || cache.cache_ttl.is_some() {
@@ -1794,8 +1786,7 @@ plugins:
         // Cancel the cleanup task
         cleanup_handle.abort();
 
-        // Note: We can't directly test that expired entries were removed via the background task
-        // because we're testing with a different cache instance. But we've verified the task
-        // spawns and runs without errors.
+        // Only asserts the task spawns and runs; eviction is covered by unit tests
+        // on CacheStore directly (this instance holds no entries to expire).
     }
 }

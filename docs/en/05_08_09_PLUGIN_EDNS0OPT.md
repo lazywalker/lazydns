@@ -4,8 +4,8 @@
 
 ## Arguments
 
-- `options`: sequence of `{ code: <number>, data: [<byte>, ...] }` — the option code and raw bytes.
-- `preserve_existing`: boolean — whether to preserve existing EDNS0 options (default: true).
+- `options`: sequence of `{ code: <number>, data: [<byte>, ...] }`: the option code and raw bytes.
+- `preserve_existing` (boolean): whether to preserve existing EDNS0 options (default: true).
 
 ## Example
 

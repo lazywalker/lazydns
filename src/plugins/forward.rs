@@ -143,7 +143,7 @@ impl Default for UpstreamHealth {
 /// Configuration for a single upstream DNS server
 ///
 /// The `addr` field stores the network address used to contact the
-/// resolver (e.g. `1.2.3.4:53` or a DoH URL like `https://...`). The
+/// resolver (such as `1.2.3.4:53` or a DoH URL like `https://...`). The
 /// optional `tag` can be used to give a human-friendly identifier for
 /// logging or metrics registration. The `health` field contains the
 /// runtime health counters for this upstream.
@@ -1202,7 +1202,7 @@ mod tests {
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, UdpSocket};
 
-    // ============ Tests from core Forward logic ============
+    // Tests from core Forward logic
 
     /// Read a DoH POST body from `stream`.
     ///
@@ -1343,7 +1343,7 @@ mod tests {
     /// pending entry must be cleaned up so a later datagram is treated as
     /// unsolicited.
     #[tokio::test]
-    async fn test_forward_udp_times_out_when_no_response() {
+    async fn forward_udp_timeout_no_response() {
         // Server that swallows the query and never replies (lives for the test).
         let black_hole = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let upstream = black_hole.local_addr().unwrap().to_string();
@@ -1420,7 +1420,7 @@ mod tests {
     /// samples. After the `fetch_update` fix, every sample contributes and
     /// the running average stays within the min/max of the recorded samples.
     #[test]
-    fn test_record_success_concurrent_updates_keep_avg_in_range() {
+    fn record_success_concurrent_avg_in_range() {
         use std::sync::Arc;
         use std::thread;
 
@@ -1452,7 +1452,7 @@ mod tests {
         let min_us = MIN_MS * 1000;
         assert!(
             avg_us >= min_us && avg_us <= max_us,
-            "average {avg_us}us drifted outside [{min_us}, {max_us}] — sample lost?"
+            "average {avg_us}us drifted outside [{min_us}, {max_us}], sample lost?"
         );
     }
 
@@ -1535,7 +1535,7 @@ mod tests {
 
     #[cfg(all(feature = "rustls", any(feature = "doh", feature = "dot")))]
     #[tokio::test]
-    async fn test_upstream_health_counters_on_success_and_failure() {
+    async fn upstream_health_counters_success_failure() {
         // Install process-level CryptoProvider for rustls v0.23
         let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -1575,9 +1575,9 @@ mod tests {
         assert!(ctx.response().is_some(), "No response set by upstream");
 
         let (q1, s1, f1) = plugin.upstreams[0].health.counters();
-        assert_eq!(q1, 1, "queries counter should be 1 after success");
-        assert_eq!(s1, 1, "successes counter should be 1 after success");
-        assert_eq!(f1, 0, "failures counter should be 0 after success");
+        assert_eq!(q1, 1);
+        assert_eq!(s1, 1);
+        assert_eq!(f1, 0);
 
         // Now test failure increments
         let core = ForwardBuilder::new()
@@ -1687,7 +1687,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(any(feature = "doh", feature = "dot"))]
-    async fn test_forward_plugin_doh_https_post_with_self_signed_cert() {
+    async fn forward_doh_post_self_signed_cert() {
         let _ = rustls::crypto::ring::default_provider().install_default();
 
         // Spawn a minimal DoH HTTPS server with a self-signed cert that

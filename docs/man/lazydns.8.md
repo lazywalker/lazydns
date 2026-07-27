@@ -8,7 +8,7 @@ manual: "lazydns manual"
 
 ## NAME
 
-lazydns — system administration and runtime operations
+lazydns \- system administration and runtime operations
 
 ## SYNOPSIS
 

@@ -8,7 +8,7 @@
 # Options:
 #   - set_name: Name of the ipset set to add entries to
 #   - inet/inet6: Address family (inet for IPv4, inet6 for IPv6)
-#   - mask: CIDR prefix length (e.g., 24 for /24, 32 for /32)
+#   - mask: CIDR prefix length (such as 24 for /24, 32 for /32)
 #
 # Examples:
 #   ipset my_blocklist,inet,24                    # IPv4 only, /24 mask

@@ -589,7 +589,7 @@ plugins:
     #[test]
     fn test_roundtrip() {
         // Clear environment overrides that may interfere with roundtrip test.
-        // This reduces flakiness from concurrent tests that set LOG_FORMAT, LOG_LEVEL, etc.
+        // This reduces flakiness from concurrent tests that set LOG_FORMAT, LOG_LEVEL, and others.
         unsafe {
             env::set_var("LOG_LEVEL", "");
             env::set_var("LOG_FORMAT", "");

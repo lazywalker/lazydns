@@ -118,7 +118,7 @@ example.com             → equivalent to domain:example.com (if default is doma
 - Performance: **O(n)** - linear traversal
 - Evaluation order: Import order (first match wins)
 - Use case: Catch variations and domain names containing keywords, less precise
-- Warning: Can produce false positives (e.g., `keyword:ad` matches `add.com`, `advertisement.com`, `badword.com`)
+- Warning: Can produce false positives (for example, `keyword:ad` matches `add.com`, `advertisement.com`, `badword.com`)
 
 #### Examples
 
@@ -191,22 +191,22 @@ Rules:
 
 Query `example.com`:
 ```
-1. Check Full rules → matches full:example.com ✓ RETURN TRUE
+1. Check Full rules: matches full:example.com ✓ (RETURN TRUE)
    (Never reaches Domain, Regexp, or Keyword checks)
 ```
 
 Query `sub.example.com`:
 ```
-1. Check Full rules → no match
-2. Check Domain rules → matches domain:example.com ✓ RETURN TRUE
+1. Check Full rules: no match
+2. Check Domain rules: matches domain:example.com ✓ (RETURN TRUE)
    (Never reaches Regexp or Keyword checks)
 ```
 
 Query `myexample.org`:
 ```
-1. Check Full rules → no match
-2. Check Domain rules → no match
-3. Check Regexp rules → matches .*example.* ✓ RETURN TRUE
+1. Check Full rules: no match
+2. Check Domain rules: no match
+3. Check Regexp rules: matches .*example.* ✓ (RETURN TRUE)
    (Never reaches Keyword check)
 ```
 
@@ -257,7 +257,7 @@ Rules:
 
 Query api.example.com:
   Evaluation: Longest match wins
-  → Matches api.example.com (most specific) ✓
+  Matches api.example.com (most specific) ✓
 ```
 
 ### Regexp and Keyword Rules
@@ -271,8 +271,8 @@ Rules (in order):
   - keyword:abc
 
 Query "google.com":
-  → Matches first regexp:google ✓ (returns true immediately)
-  → Never evaluates remaining rules
+  Matches first regexp:google ✓ (returns true immediately)
+  Never evaluates remaining rules
 ```
 
 ## Configuration Examples
@@ -481,7 +481,7 @@ domain:*.example.com
 ### Rule Not Matching
 
 1. Check case sensitivity (all rules are case-insensitive)
-2. Verify prefix is correct (`full:`, `domain:`, etc.)
+2. Verify prefix is correct (`full:`, `domain:`)
 3. Check trailing dots (automatically normalized)
 4. Verify rule priority (check previous rules)
 

@@ -35,15 +35,15 @@ pub struct RosAddrlistPlugin {
     list_name: String,
     /// Whether to add IPs from query responses
     track_responses: bool,
-    /// Optional HTTP endpoint to call for adding IPs (e.g., a helper service)
+    /// Optional HTTP endpoint to call for adding IPs (such as a helper service)
     server: Option<String>,
     /// Optional basic auth user
     user: Option<String>,
     /// Optional basic auth password
     passwd: Option<String>,
-    /// IPv4 mask to apply when adding (e.g., 24)
+    /// IPv4 mask to apply when adding (such as 24)
     mask4: Option<u8>,
-    /// IPv6 mask to apply when adding (e.g., 32)
+    /// IPv6 mask to apply when adding (such as 32)
     mask6: Option<u8>,
     // client: Option<Client>,
 }

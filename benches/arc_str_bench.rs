@@ -224,7 +224,7 @@ fn main() {
     const ITERATIONS: usize = 10_000;
     const LARGE_ITERATIONS: usize = 5_000;
 
-    // ===== Test 1: Message Clone =====
+    // Test 1: Message Clone
     println!("═══ Test 1: Message Clone (typical DNS response) ═══");
     let msg = create_test_message();
 
@@ -234,7 +234,7 @@ fn main() {
     });
     result.print();
 
-    // ===== Test 2: Arc<Message> Clone =====
+    // Test 2: Arc<Message> Clone
     println!();
     println!("═══ Test 2: Arc<Message> Clone ═══");
     let arc_msg = Arc::new(create_test_message());
@@ -245,7 +245,7 @@ fn main() {
     });
     result.print();
 
-    // ===== Test 3: Question Clone =====
+    // Test 3: Question Clone
     println!();
     println!("═══ Test 3: Question Clone ═══");
     let question = Question::new(
@@ -260,7 +260,7 @@ fn main() {
     });
     result.print();
 
-    // ===== Test 4: ResourceRecord Clone =====
+    // Test 4: ResourceRecord Clone
     println!();
     println!("═══ Test 4: ResourceRecord Clone ═══");
     let record = ResourceRecord::new(
@@ -277,7 +277,7 @@ fn main() {
     });
     result.print();
 
-    // ===== Test 5: Large Message Clone =====
+    // Test 5: Large Message Clone
     println!();
     println!("═══ Test 5: Large Message Clone (many records) ═══");
     let large_msg = create_large_message();
@@ -288,7 +288,7 @@ fn main() {
     });
     result.print();
 
-    // ===== Test 6: Concurrent Scenario =====
+    // Test 6: Concurrent Scenario
     println!();
     println!("═══ Test 6: Concurrent Scenario (16 upstream clones) ═══");
     let msg = create_test_message();
@@ -302,7 +302,7 @@ fn main() {
     });
     result.print();
 
-    // ===== Test 7: String Allocation Impact =====
+    // Test 7: String Allocation Impact
     println!();
     println!("═══ Test 7: String Allocation Impact ═══");
     let domain = "subdomain.example.com".to_string();
@@ -321,7 +321,7 @@ fn main() {
     });
     result.print();
 
-    // ===== Summary =====
+    // Summary
     println!();
     println!("═══════════════════════════════════════════════════════════════════════");
     println!("Summary: Current implementation uses String, which requires heap");

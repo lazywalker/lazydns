@@ -13,7 +13,7 @@ The `acl` plugin controls access to the DNS server based on the client's IP addr
 
 - `default` (string, optional): `allow` or `deny`. Defaults to `deny` when omitted.
 - `rules` (sequence of mappings, optional): list of rule objects with fields:
-  - `network` (string): CIDR network (e.g., `192.168.0.0/16`).
+  - `network` (string): CIDR network (such as `192.168.0.0/16`).
   - `action` (string): `allow` or `deny`.
 
 Example:

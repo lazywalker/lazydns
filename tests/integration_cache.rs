@@ -139,7 +139,7 @@ async fn integration_cache_lazycache_refresh_triggers_background() {
 
 #[tokio::test]
 // lets a cached entry expire but keeps it alive via cache_ttl,
-// checks that the response TTL is reset to the 5 s stale TTL,
+// checks that the response TTL is reset to the 5s stale TTL,
 // and again waits for the resolver to run in the background.
 async fn integration_cache_ttl_triggers_stale_serving() {
     let call_count = Arc::new(AtomicUsize::new(0));

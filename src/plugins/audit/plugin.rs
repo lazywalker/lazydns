@@ -3,7 +3,7 @@
 //! This module provides the query-logging hook used by `PluginHandler` to
 //! automatically publish every DNS query to the event bus (for WebUI
 //! real-time streaming and the alert engine). It is compiled with the `web`
-//! feature and requires no user configuration — logging is always active when
+//! feature and requires no user configuration; logging is always active when
 //! `web` is enabled.
 
 use super::event::QueryLogEntry;
@@ -122,7 +122,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_log_query_for_context_does_not_panic() {
+    async fn log_query_for_context_no_panic() {
         let mut request = Message::new();
         request.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
 

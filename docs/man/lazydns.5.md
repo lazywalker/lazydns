@@ -8,7 +8,7 @@ manual: "lazydns manual"
 
 ## NAME
 
-lazydns — configuration file format and options
+lazydns \- configuration file format and options
 
 ## DESCRIPTION
 

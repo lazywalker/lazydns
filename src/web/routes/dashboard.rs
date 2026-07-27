@@ -50,7 +50,7 @@ pub async fn overview(State(state): State<Arc<WebState>>) -> Json<DashboardOverv
         };
     }
 
-    // TODO: Track actual SSE/WS connections
+    // TODO: replace config-derived value with live SSE/WS connection count
     let response = DashboardOverview {
         status: "running".to_string(),
         uptime_secs: state.uptime_secs(),

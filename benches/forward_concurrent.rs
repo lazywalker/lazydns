@@ -69,7 +69,7 @@ unsafe impl GlobalAlloc for TrackingAlloc {
 static GLOBAL_TRACKER: TrackingAlloc = TrackingAlloc::new();
 
 async fn process_request(req: Message) {
-    // simulate lightweight processing (e.g., parsing/inspection)
+    // simulate lightweight processing (such as parsing/inspection)
     let _qcount = req.questions().len();
 }
 
