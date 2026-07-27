@@ -1,53 +1,6 @@
-//! Admin API for runtime management
+//! Admin API for runtime management (cache control, config reload, server status).
 //!
-//! This module provides HTTP endpoints for managing the DNS server at runtime, including:
-//! - Cache control and statistics
-//! - Configuration reload
-//! - Server status monitoring
-//!
-//! # Architecture
-//!
-//! The admin server runs as a separate HTTP server alongside the main DNS servers, bound to
-//! a configurable address (default: `127.0.0.1:8000`). It allows operators to monitor and
-//! manage the server without restarting the entire process.
-//!
-//! # API Endpoints
-//!
-//! - `GET /api/cache/stats` - Retrieve cache statistics (size, hits, misses, evictions, hit rate)
-//! - `POST /api/cache/control` - Control cache operations (such as clear)
-//! - `POST /api/config/reload` - Reload configuration from file
-//! - `GET /api/server/stats` - Get current server status and version
-//!
-//! # Security Considerations
-//!
-//! The admin API has no built-in authentication. It should only be exposed to trusted networks
-//! or protected by network-level access controls (firewall, reverse proxy with auth, and others).
-//! Production deployments should:
-//! - Bind to localhost or internal network only
-//! - Use a reverse proxy with authentication
-//! - Restrict network access via firewall rules
-//!
-//! # Example
-//!
-//! ```yaml
-//! # Configuration example
-//! admin:
-//!   enabled: true
-//!   addr: "127.0.0.1:8000"
-//! ```
-//!
-//! ```bash
-//! # Query server status
-//! curl http://127.0.0.1:8000/api/server/stats
-//!
-//! # Get cache statistics
-//! curl http://127.0.0.1:8000/api/cache/stats
-//!
-//! # Clear cache
-//! curl -X POST http://127.0.0.1:8000/api/cache/control \
-//!   -H "Content-Type: application/json" \
-//!   -d '{"action":"clear"}'
-//! ```
+//! No built-in auth; bind to localhost or use a reverse proxy.
 
 use crate::config::Config;
 use crate::plugin::Registry;

@@ -449,7 +449,7 @@ if let Some(plugin_tag) = args.get("plugin") {
 
 ### Custom File Processing
 
-For formats requiring transformation (such as dnsmasq → POSIX domain list):
+For formats requiring transformation (such as dnsmasq to POSIX domain list):
 
 ```yaml
 # Download raw dnsmasq format

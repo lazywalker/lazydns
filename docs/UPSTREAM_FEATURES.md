@@ -88,7 +88,7 @@ Key features and improvements in upstream:
 - Add `outputDir` and `dry_run` to various writing functions for safer tests and more predictable behavior.
 - Consider replacing CLI-based `ipset` / `nft` invocation with native netlink-based implementations for robustness.
 - Continue hardening FileWatcher behavior for edge-case filesystems/editors and add tests for the edge cases.
-- Improve plugin args decoding after env overrides (map → typed struct conversion) for better ergonomics.
+- Improve plugin args decoding after env overrides (map to typed struct conversion) for better ergonomics.
 
 ---
 

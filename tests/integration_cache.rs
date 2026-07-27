@@ -99,7 +99,7 @@ async fn wait_for_call_count(counter: &AtomicUsize, target: usize) {
 #[tokio::test]
 // fills an entry, waits until the remaining TTL hits the configured threshold,
 // and asserts that a stale hit still returns an answer
-// while the resolver’s call count goes from 1→2
+// while the resolver’s call count goes from 1 to 2
 // thanks to the background refresh.
 async fn integration_cache_lazycache_refresh_triggers_background() {
     let call_count = Arc::new(AtomicUsize::new(0));

@@ -156,12 +156,10 @@ pub fn load_from_yaml(yaml: &str) -> Result<Config> {
     Ok(config)
 }
 
-/// Apply environment variable overrides to the configuration
+/// Apply environment variable overrides to the configuration.
 ///
-/// Supports two patterns:
-/// 1. Top-level fields: `LOG_FORMAT=json` → sets `config.log.format`
-/// 2. Plugin args: `PLUGINS_<TAG>_ARGS_<KEY>=value` → sets `plugin.args.<key>`
-///
+/// Two patterns: `LOG_FORMAT=json` sets `config.log.format`, and
+/// `PLUGINS_<TAG>_ARGS_<KEY>=value` sets `plugin.args.<key>`.
 /// Values are parsed as YAML (numbers, booleans, arrays) with string fallback.
 fn apply_env_overrides(config: &mut Config) -> Result<()> {
     // Collect all env vars into a HashMap to ensure we see all updates

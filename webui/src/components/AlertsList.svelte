@@ -160,7 +160,7 @@
           ? 'text-primary-400 hover:text-primary-300'
           : 'text-primary-600 hover:text-primary-500'}"
       >
-        View all alerts →
+        View all alerts
       </a>
     {/if}
   </div>

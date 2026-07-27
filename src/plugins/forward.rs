@@ -81,13 +81,7 @@ impl UpstreamHealth {
         self.queries.fetch_add(1, Ordering::Relaxed);
         let success_count = self.successes.fetch_add(1, Ordering::Relaxed);
 
-        // Update the running average atomically. The previous implementation
-        // did a non-atomic load-modify-store across `avg_response_time_us` and
-        // `queries`, so concurrent updates lost samples and skewed the average
-        // (which in turn could mislead the "Fastest" load-balancing strategy).
-        // `fetch_update` retries the CAS until it succeeds, making the update
-        // race-free. `success_count` is the count *before* this increment, so
-        // it is the correct weight for the old average.
+        // fetch_update for race-free running average; success_count is pre-increment
         let new_time = response_time.as_micros() as u64;
         self.avg_response_time_us
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old_avg| {
@@ -189,7 +183,7 @@ impl Upstream {
 struct UdpMuxState {
     /// The single shared UDP socket bound to `0.0.0.0:0`.
     socket: UdpSocket,
-    /// Pending queries: qid → oneshot sender for the response.
+    /// Maps allocated qid to the oneshot sender for the response.
     pending: DashMap<u16, oneshot::Sender<Message>>,
     /// Monotonically increasing query-ID counter.
     next_qid: AtomicU16,
@@ -355,21 +349,9 @@ impl Forward {
             sent, upstream_addr, original_qid, assigned_qid
         );
 
-        // Wait for the matched response, racing it fairly against the timeout.
-        //
-        // Using `select!` (instead of `timeout(d, rx)`) ensures that if the
-        // response arrives from read_loop at roughly the same instant the
-        // deadline fires, the response still wins a fair branch selection.
-        // With the previous `timeout().await` + unconditional
-        // `pending.remove()`, a response already delivered into the oneshot
-        // could be discarded when the timeout branch completed first, causing
-        // a spurious query failure under load.
-        //
-        // Cleanup note: when the response wins, read_loop has already removed
-        // the entry from `pending`. When the timeout/closed branches win, we
-        // remove the entry here so a late response is dropped by read_loop.
+        // biased select: response branch wins over timeout at race edges
         tokio::select! {
-            biased; // prefer the response branch over the timer
+            biased;
             received = &mut rx => {
                 // The pending entry was already removed by read_loop before
                 // sending, so no extra cleanup is needed on this path.

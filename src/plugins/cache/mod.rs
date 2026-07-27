@@ -891,7 +891,6 @@ impl Plugin for CachePlugin {
             .get_metadata::<bool>("response_from_cache")
             .is_some()
         {
-            // debug!("CachePlugin: Response already from cache, skipping execution");
             return Ok(());
         }
 

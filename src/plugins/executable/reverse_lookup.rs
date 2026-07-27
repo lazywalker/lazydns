@@ -492,7 +492,6 @@ mod tests {
         let args = ReverseLookupArgs::default();
         let plugin = ReverseLookupPlugin::new(args);
 
-        // insert entry for 10.0.0.1
         let key = "10.0.0.1".to_string();
         let entry: (String, Instant) = (
             "example.com".to_string(),

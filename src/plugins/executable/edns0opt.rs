@@ -16,9 +16,7 @@ use tracing::{debug, trace};
 /// EDNS0 option code and data
 #[derive(Debug, Clone)]
 pub struct Edns0Option {
-    /// Option code
     pub code: u16,
-    /// Option data
     pub data: Vec<u8>,
 }
 
