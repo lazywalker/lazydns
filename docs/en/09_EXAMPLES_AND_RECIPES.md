@@ -4,8 +4,8 @@ A collection of real-world configuration examples and troubleshooting recipes.
 
 ## Complete example configs
 - `examples/acl.demo.yaml`: ACL rules demo
+- `examples/cache.demo.yaml`: Cache with persistence demo
 - `examples/ipset.demo.yaml`: Dynamic ipset sync demo
-- `examples/audit/audit.demo.yaml`: Audit logging & security events demo
 
 ## Common deployments
 - DNS forwarder with cache

@@ -82,231 +82,12 @@ use tracing::{debug, trace, warn};
 /// TTL used when serving stale responses during cache_ttl window
 const STALE_RESPONSE_TTL_SECS: u32 = 5;
 
+mod entry;
 mod persistence;
+mod stats;
 
-/// Cache entry storing a DNS response with metadata
-#[derive(Clone)]
-pub struct CacheEntry {
-    pub response: Arc<Message>,
-    pub cached_at: Instant,
-    pub ttl: u32,
-    pub cache_ttl: u32,
-    pub original_ttl: u32,
-    pub last_accessed: Instant,
-    pub cached_at_unix: u64,
-}
-
-impl CacheEntry {
-    fn new(response: Message, ttl: u32, cache_ttl: u32) -> Self {
-        let now = Instant::now();
-        let cached_at_unix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        Self {
-            response: Arc::new(response),
-            cached_at: now,
-            ttl,
-            cache_ttl,
-            original_ttl: ttl,
-            last_accessed: now,
-            cached_at_unix,
-        }
-    }
-
-    /// Check if this entry has expired
-    fn is_cache_expired(&self) -> bool {
-        // Entries with a TTL of 0 should be considered expired immediately.
-        if self.cache_ttl == 0 {
-            return true;
-        }
-
-        // Use >= to avoid timing races where elapsed may equal the TTL.
-        self.cached_at.elapsed() >= Duration::from_secs(self.cache_ttl as u64)
-    }
-
-    /// Update last accessed time
-    fn touch(&mut self) {
-        self.last_accessed = Instant::now();
-    }
-
-    /// Get remaining message TTL in seconds
-    fn remaining_ttl(&self) -> u32 {
-        let elapsed = self.cached_at.elapsed().as_secs() as u32;
-        self.ttl.saturating_sub(elapsed)
-    }
-
-    /// Get remaining cache TTL in seconds
-    fn remaining_cache_ttl(&self) -> u32 {
-        let elapsed = self.cached_at.elapsed().as_secs() as u32;
-        self.cache_ttl.saturating_sub(elapsed)
-    }
-}
-
-/// Statistics for the cache
-#[derive(Debug, Default)]
-pub struct CacheStats {
-    /// Number of cache hits
-    hits: AtomicU64,
-    /// Number of cache misses
-    misses: AtomicU64,
-    /// Number of entries evicted due to size limit
-    evictions: AtomicU64,
-    /// Number of entries expired due to TTL
-    expirations: AtomicU64,
-}
-
-impl CacheStats {
-    /// Create new cache statistics
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn record_hit(&self) {
-        self.hits.fetch_add(1, Ordering::Relaxed);
-        #[cfg(feature = "metrics")]
-        {
-            metrics::CACHE_HITS_TOTAL.inc();
-        }
-    }
-
-    fn record_miss(&self) {
-        self.misses.fetch_add(1, Ordering::Relaxed);
-        #[cfg(feature = "metrics")]
-        {
-            metrics::CACHE_MISSES_TOTAL.inc();
-        }
-    }
-
-    fn record_eviction(&self) {
-        self.evictions.fetch_add(1, Ordering::Relaxed);
-        #[cfg(feature = "metrics")]
-        {
-            crate::metrics::DNS_CACHE_EVICTIONS_TOTAL.inc();
-        }
-    }
-
-    fn record_expiration(&self) {
-        self.expirations.fetch_add(1, Ordering::Relaxed);
-        #[cfg(feature = "metrics")]
-        {
-            crate::metrics::DNS_CACHE_EXPIRATIONS_TOTAL.inc();
-        }
-    }
-
-    /// Get number of hits
-    pub fn hits(&self) -> u64 {
-        self.hits.load(Ordering::Relaxed)
-    }
-
-    /// Get number of misses
-    pub fn misses(&self) -> u64 {
-        self.misses.load(Ordering::Relaxed)
-    }
-
-    /// Get number of evictions
-    pub fn evictions(&self) -> u64 {
-        self.evictions.load(Ordering::Relaxed)
-    }
-
-    /// Get number of expirations
-    pub fn expirations(&self) -> u64 {
-        self.expirations.load(Ordering::Relaxed)
-    }
-
-    /// Calculate hit rate (0.0 to 1.0)
-    pub fn hit_rate(&self) -> f64 {
-        let hits = self.hits();
-        let total = hits + self.misses();
-        if total == 0 {
-            0.0
-        } else {
-            hits as f64 / total as f64
-        }
-    }
-
-    /// Get total number of requests
-    pub fn total_requests(&self) -> u64 {
-        self.hits() + self.misses()
-    }
-}
-
-impl fmt::Display for CacheStats {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "CacheStats {{ hits: {}, misses: {}, evictions: {}, expirations: {}, hit_rate: {:.2}% }}",
-            self.hits(),
-            self.misses(),
-            self.evictions(),
-            self.expirations(),
-            self.hit_rate() * 100.0
-        )
-    }
-}
-
-/// LazyCache-specific statistics
-///
-/// Tracks refresh attempts and outcomes for LazyCache optimization feature.
-#[derive(Debug, Default)]
-pub struct LazyCacheStats {
-    /// Number of lazy refresh attempts
-    refreshes: AtomicU64,
-    /// Number of successful lazy refreshes
-    successful_refreshes: AtomicU64,
-    /// Number of failed lazy refreshes
-    failed_refreshes: AtomicU64,
-}
-
-impl LazyCacheStats {
-    /// Create new LazyCache statistics
-    fn new() -> Self {
-        Self::default()
-    }
-
-    /// Record a lazy refresh attempt
-    fn record_refresh(&self) {
-        self.refreshes.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Get number of refresh attempts
-    pub fn refreshes(&self) -> u64 {
-        self.refreshes.load(Ordering::Relaxed)
-    }
-
-    /// Get number of successful refreshes
-    pub fn successful_refreshes(&self) -> u64 {
-        self.successful_refreshes.load(Ordering::Relaxed)
-    }
-
-    /// Get number of failed refreshes
-    pub fn failed_refreshes(&self) -> u64 {
-        self.failed_refreshes.load(Ordering::Relaxed)
-    }
-
-    /// Calculate successful refresh rate
-    pub fn refresh_success_rate(&self) -> f64 {
-        let total = self.refreshes();
-        if total == 0 {
-            0.0
-        } else {
-            self.successful_refreshes() as f64 / total as f64
-        }
-    }
-}
-
-impl fmt::Display for LazyCacheStats {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "LazyCacheStats {{ refreshes: {}, successful: {}, failed: {}, success_rate: {:.2}% }}",
-            self.refreshes(),
-            self.successful_refreshes(),
-            self.failed_refreshes(),
-            self.refresh_success_rate() * 100.0
-        )
-    }
-}
+pub use entry::CacheEntry;
+pub use stats::{CacheStats, LazyCacheStats};
 
 /// DNS response cache plugin
 ///
@@ -888,6 +669,154 @@ impl CachePlugin {
             });
         }
     }
+
+    /// Phase 1: look up cache. On hit, serves the response and sets RETURN_FLAG.
+    async fn try_serve_from_cache(&self, context: &mut Context, key: &str) -> Result<()> {
+        let cache_already_checked = context.get_metadata::<bool>("cache_checked").is_some();
+        context.set_metadata("cache_checked", true);
+
+        if context
+            .get_metadata::<bool>("background_lazy_refresh")
+            .is_some()
+        {
+            debug!("Skipping cache for background lazy refresh");
+            return Ok(());
+        }
+
+        let cached_entry = {
+            let mut cache = self.cache.write();
+            cache.get(key).cloned()
+        };
+
+        let Some(mut entry) = cached_entry else {
+            if !cache_already_checked {
+                self.stats.record_miss();
+                debug!("Cache miss: {}", key);
+            }
+            return Ok(());
+        };
+
+        if entry.is_cache_expired() {
+            debug!("Cache entry expired: {}", key);
+            self.cache.write().pop(key);
+            self.stats.record_expiration();
+            self.stats.record_miss();
+            #[cfg(feature = "metrics")]
+            {
+                metrics::CACHE_SIZE.set(self.size() as i64);
+            }
+            return Ok(());
+        }
+
+        debug!("Cache hit: {}", key);
+        self.stats.record_hit();
+        entry.touch();
+
+        let remaining_ttl = entry.remaining_ttl();
+
+        if remaining_ttl == 0 {
+            if let Some(lazy_ttl) = self.cache_ttl {
+                debug!(
+                    "Stale-serving: {}, cache_remaining: {}s, lazy_ttl: {}s",
+                    key,
+                    entry.remaining_cache_ttl(),
+                    lazy_ttl
+                );
+                Self::serve_cached_response(context, &entry, STALE_RESPONSE_TTL_SECS);
+                self.spawn_background_refresh(context, key, "stale-serving TTL");
+                context.set_metadata(RETURN_FLAG, true);
+            } else {
+                self.cache.write().pop(key);
+                self.stats.record_expiration();
+                self.stats.record_miss();
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::CACHE_SIZE.set(self.size() as i64);
+                }
+            }
+            return Ok(());
+        }
+
+        let should_lazy_refresh = self.enable_lazycache
+            && context
+                .get_metadata::<bool>("background_lazy_refresh")
+                .is_none()
+            && {
+                let pct = remaining_ttl as f32 / entry.original_ttl as f32;
+                let below = pct <= self.lazycache_threshold;
+                if below {
+                    debug!(
+                        "LazyCache threshold: {} at {:.1}% (< {:.1}%)",
+                        key,
+                        pct * 100.0,
+                        self.lazycache_threshold * 100.0
+                    );
+                }
+                below
+            };
+
+        if should_lazy_refresh {
+            Self::serve_cached_response(context, &entry, remaining_ttl);
+            self.spawn_background_refresh(context, key, "LazyCache");
+            context.set_metadata(RETURN_FLAG, true);
+            return Ok(());
+        }
+
+        if context
+            .get_metadata::<bool>("background_lazy_refresh")
+            .is_some()
+        {
+            debug!(
+                "Background refresh: cache hit, continuing downstream for {}",
+                key
+            );
+            return Ok(());
+        }
+
+        Self::serve_cached_response(context, &entry, remaining_ttl);
+        context.set_metadata(RETURN_FLAG, true);
+        Ok(())
+    }
+
+    /// Phase 2: store a downstream response into cache.
+    fn try_store_response(&self, context: &mut Context, key: &str) {
+        if context
+            .get_metadata::<bool>("response_from_cache")
+            .is_some()
+        {
+            return;
+        }
+
+        let Some(response) = context.response() else {
+            return;
+        };
+
+        let response_code = response.response_code();
+        let is_error = response_code != crate::dns::ResponseCode::NoError;
+
+        if is_error {
+            if self.negative_cache {
+                debug!(
+                    "Caching negative response: {:?} (TTL: {}s)",
+                    response_code, self.negative_ttl
+                );
+                let cache_ttl = self.cache_ttl.unwrap_or(self.negative_ttl);
+                let entry = CacheEntry::new(response.clone(), self.negative_ttl, cache_ttl);
+                self.store(key.to_string(), entry);
+            }
+        } else if !response.answers().is_empty() {
+            let ttl = Self::get_min_ttl(response);
+            if ttl > 0 {
+                let cache_ttl = self.cache_ttl.unwrap_or(ttl);
+                debug!(
+                    "Storing: {} (msg TTL: {}s, cache TTL: {}s)",
+                    key, ttl, cache_ttl
+                );
+                let entry = CacheEntry::new(response.clone(), ttl, cache_ttl);
+                self.store(key.to_string(), entry);
+            }
+        }
+    }
 }
 
 impl fmt::Debug for CachePlugin {
@@ -937,20 +866,11 @@ impl BackgroundTask for CachePlugin {
 #[async_trait]
 impl Plugin for CachePlugin {
     async fn execute(&self, context: &mut Context) -> Result<()> {
-        // Generate cache key from request
         let key = match Self::make_key(context.request()) {
             Some(k) => k,
-            None => {
-                debug!("Cannot generate cache key, no questions in request");
-                return Ok(());
-            }
+            None => return Ok(()),
         };
 
-        // Check if cache was already checked in this request to avoid double-counting misses
-        // (such as when fallback retries the entire sequence)
-        let cache_already_checked = context.get_metadata::<bool>("cache_checked").is_some();
-
-        // Check if response is already from cache (from a previous execution of this plugin)
         if context
             .get_metadata::<bool>("response_from_cache")
             .is_some()
@@ -958,219 +878,10 @@ impl Plugin for CachePlugin {
             return Ok(());
         }
 
-        // Phase 1: Try to read from cache (only if no response yet)
         if context.response().is_none() {
-            // Mark that cache has been checked for this request (prevent duplicate miss counting)
-            context.set_metadata("cache_checked", true);
-
-            // Skip cache logic for background lazy refresh to avoid recursion
-            if context
-                .get_metadata::<bool>("background_lazy_refresh")
-                .is_some()
-            {
-                debug!("Skipping cache logic for background lazy refresh");
-                return Ok(());
-            }
-
-            // Try to get from cache (LruCache::get automatically updates LRU order)
-            let cached_entry = {
-                let mut cache = self.cache.write();
-                cache.get(&key).cloned()
-            };
-
-            if let Some(mut entry) = cached_entry {
-                // Remove if cache lifetime has fully expired
-                if entry.is_cache_expired() {
-                    debug!("Cache entry expired: {}", key);
-                    self.cache.write().pop(&key);
-                    self.stats.record_expiration();
-                    self.stats.record_miss();
-                    // Update cache size metric after removal
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::CACHE_SIZE.set(self.size() as i64);
-                    }
-                    return Ok(());
-                }
-
-                // Cache hit!
-                debug!("Cache hit: {}", key);
-                self.stats.record_hit();
-
-                // Update last accessed time
-                entry.touch();
-
-                let remaining_ttl = entry.remaining_ttl();
-
-                // Handle stale (message TTL expired) with cache_ttl semantics
-                if remaining_ttl == 0 {
-                    if let Some(lazy_ttl) = self.cache_ttl {
-                        debug!(
-                            "Stale-serving TTL hit (stale entry): {}, cache_remaining: {}s, configured_lazy_ttl: {}s",
-                            key,
-                            entry.remaining_cache_ttl(),
-                            lazy_ttl
-                        );
-
-                        // Return stale response with a small TTL while refreshing in background
-                        Self::serve_cached_response(context, &entry, STALE_RESPONSE_TTL_SECS);
-
-                        // Trigger background refresh (de-duplicated)
-                        self.spawn_background_refresh(context, &key, "stale-serving TTL");
-
-                        // Stop the chain and return stale response
-                        context.set_metadata(RETURN_FLAG, true);
-                        return Ok(());
-                    } else {
-                        // No lazycache TTL configured: treat as expired
-                        debug!("Cache entry message TTL expired without cache_ttl: {}", key);
-                        self.cache.write().pop(&key);
-                        self.stats.record_expiration();
-                        self.stats.record_miss();
-                        #[cfg(feature = "metrics")]
-                        {
-                            metrics::CACHE_SIZE.set(self.size() as i64);
-                        }
-                        return Ok(());
-                    }
-                }
-
-                // Check if lazycache threshold is reached (pre-expiry refresh)
-                let should_lazy_refresh = if self.enable_lazycache {
-                    // Skip lazy refresh if this is already a background refresh to prevent recursion
-                    if context
-                        .get_metadata::<bool>("background_lazy_refresh")
-                        .is_some()
-                    {
-                        debug!(
-                            "Background lazy refresh: skipping lazy refresh check for {}",
-                            key
-                        );
-                        false
-                    } else {
-                        // Use original_ttl for percentage calculation to properly detect the 5% threshold
-                        let ttl_percentage = remaining_ttl as f32 / entry.original_ttl as f32;
-                        let threshold = self.lazycache_threshold;
-
-                        debug!(
-                            "LazyCache check: {}, original_ttl: {}s, remaining: {}s, percentage: {:.2}%, threshold: {:.2}%",
-                            key,
-                            entry.original_ttl,
-                            remaining_ttl,
-                            ttl_percentage * 100.0,
-                            threshold * 100.0
-                        );
-
-                        if ttl_percentage <= threshold {
-                            // Lazycache: Entry needs refresh
-                            debug!(
-                                "LazyCache threshold REACHED for {}: {:.2}% TTL remaining (< {:.2}%), triggering refresh",
-                                key,
-                                ttl_percentage * 100.0,
-                                threshold * 100.0
-                            );
-                            // refresh attempt is recorded inside spawn_background_refresh;
-                            // don't double-count here.
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                } else {
-                    debug!(
-                        "Lazycache disabled (enable_lazycache={})",
-                        self.enable_lazycache
-                    );
-                    false
-                };
-
-                if should_lazy_refresh {
-                    // LazyCache: return cached response immediately, spawn background refresh
-                    Self::serve_cached_response(context, &entry, remaining_ttl);
-
-                    // Trigger background refresh (de-duplicated)
-                    self.spawn_background_refresh(context, &key, "LazyCache");
-
-                    // Stop chain - client gets cached response immediately
-                    context.set_metadata(RETURN_FLAG, true);
-                    return Ok(());
-                } else {
-                    // Normal cache hit - return immediately (unless this is a background refresh)
-                    if context
-                        .get_metadata::<bool>("background_lazy_refresh")
-                        .is_some()
-                    {
-                        debug!(
-                            "Background lazy refresh: cache hit but continuing downstream for {}",
-                            key
-                        );
-                        // Don't return cached response, let downstream execute to get fresh data
-                        return Ok(());
-                    } else {
-                        // Normal cache hit
-                        Self::serve_cached_response(context, &entry, remaining_ttl);
-
-                        trace!("Normal cache hit: returning immediately and stopping chain");
-                        // Stop the plugin chain to prevent downstream plugins (like Forward)
-                        // from executing and overwriting our cached response.
-                        context.set_metadata(RETURN_FLAG, true);
-                        return Ok(());
-                    }
-                }
-            }
-
-            // Cache miss - no entry found at all
-            // Only record miss if this is the first cache check in this request
-            // (to avoid double-counting when fallback retries the sequence)
-            if !cache_already_checked {
-                self.stats.record_miss();
-                debug!("Cache miss: {}", key);
-            }
+            self.try_serve_from_cache(context, &key).await?;
         } else {
-            // Phase 2: A response exists (set by a downstream plugin like forward)
-            // We should store it in cache for future queries
-            // BUT: Skip if response came from cache (Phase 1) - we don't want to re-store it
-            if context
-                .get_metadata::<bool>("response_from_cache")
-                .is_none()
-                && let Some(response) = context.response()
-            {
-                let response_code = response.response_code();
-                let is_error = response_code != crate::dns::ResponseCode::NoError;
-                // Handle negative caching
-                if is_error {
-                    if self.negative_cache {
-                        // Cache error responses with negative TTL
-                        debug!(
-                            "Caching negative response: {:?} (TTL: {}s)",
-                            response_code, self.negative_ttl
-                        );
-
-                        let cache_ttl = self.cache_ttl.unwrap_or(self.negative_ttl);
-                        let entry = CacheEntry::new(response.clone(), self.negative_ttl, cache_ttl);
-                        self.store(key.clone(), entry);
-                    } else {
-                        debug!("Not caching error response: {:?}", response_code);
-                    }
-                } else if !response.answers().is_empty() {
-                    // Cache successful responses with answers
-                    let ttl = Self::get_min_ttl(response);
-
-                    if ttl > 0 {
-                        // Determine cache TTL: if cache_ttl is set, use it for positive answers
-                        let cache_ttl = self.cache_ttl.unwrap_or(ttl);
-                        debug!(
-                            "Storing response in cache: {} (message TTL: {}s, cache TTL: {}s)",
-                            key, ttl, cache_ttl
-                        );
-
-                        // Always create/replace with new entry
-                        // This resets original_ttl for the new cache cycle
-                        let entry = CacheEntry::new(response.clone(), ttl, cache_ttl);
-                        self.store(key.clone(), entry);
-                    }
-                }
-            }
+            self.try_store_response(context, &key);
         }
 
         Ok(())

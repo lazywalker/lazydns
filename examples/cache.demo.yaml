@@ -1,0 +1,55 @@
+# Cache plugin demo with persistence
+#
+# Demonstrates cache configuration including dump_file persistence.
+# With dump_file, the cache survives server restarts: entries are saved on
+# shutdown (and periodically) to a binary file, then restored on startup.
+#
+# Usage:
+#   cargo run -- -c examples/cache.demo.yaml -vv
+
+log:
+  level: info
+  console: true
+
+plugins:
+  - tag: cache
+    type: cache
+    args:
+      size: 2048
+      negative_cache: true
+      negative_ttl: 300
+      enable_lazycache: true
+      lazycache_threshold: 0.05
+      cache_ttl: 600
+      # Persist cache across restarts. Optional.
+      dump_file: /tmp/lazydns-cache.dump
+      dump_interval: 300
+
+  - tag: forward
+    type: forward
+    args:
+      concurrent: 2
+      upstreams:
+        - addr: "8.8.8.8:53"
+        - addr: "1.1.1.1:53"
+
+  - tag: main
+    type: sequence
+    args:
+      - exec: $cache
+      - matches: has_resp
+        exec: accept
+      - exec: $forward
+      - exec: accept
+
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: main
+      listen: ":5354"
+
+  - tag: tcp_server
+    type: tcp_server
+    args:
+      entry: main
+      listen: ":5354"
