@@ -76,7 +76,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 quinn = { version = "0.11", optional = true }
 
 # Base64 encoding
-base64 = "0.22"
+base64 = "0.23"
 
 # Procedural macros for plugin registration (workspace member)
 lazydns-macros = { path = "lazydns-macros", version = "0.2.62" }
