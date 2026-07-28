@@ -2,6 +2,29 @@
 
 This file contains high-level release notes and migration guidance.
 
+## Unreleased (v0.3.20)
+
+**Cache**
+
+- feat(cache): persistence via `dump_file` / `dump_interval`; cache survives restarts with binary dump/load
+- fix(cache): include DNSSEC flags (DO/AD/CD) in cache key to prevent serving DNSSEC responses to non-DNSSEC clients
+- fix(cache): remove 5 internal-only config options (refresh_worker_count, refresh_queue_capacity, enable_cleanup, cleanup_interval_secs, cleanup_pressure_threshold); now constants
+
+**Audit / WebUI**
+
+- refactor(audit): merge audit into the `web` feature; no longer a standalone plugin or feature
+- refactor(audit): remove file-writing, config struct, and standalone plugin registration
+- feat(webui): read-only config viewer with sequence flow visualization and expandable plugin args
+- feat(webui): reload error banner showing backend validation messages
+- feat(webui): split Admin page into ManagementTab / ConfigTab components
+
+**Config cleanup**
+
+- fix(fallback): remove dead `threshold` and `always_standby` config keys (never implemented)
+- refactor(domain_validator): remove redundant `blacklist` feature (use `domain_set` + `black_hole`)
+- refactor: remove vestigial `Plugin::priority()` system (sequence controls order)
+- refactor: remove legacy `PluginConfig.config` field (all plugins use `args:`)
+
 ## Release v0.3.13 - 2026-07-06
 
 Bug-fix release focused on correctness of the forward and cache paths under load.
