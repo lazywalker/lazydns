@@ -42,8 +42,8 @@ PLUGINS_<TAG>_ARGS_<KEY>=value
 
 Where:
 
-- `<TAG>` is the plugin tag name (normalized to lowercase, `_` → `-`)
-- `<KEY>` is the argument key (normalized to lowercase, `_` → `-`)
+- `<TAG>` is the plugin tag name (normalized to lowercase, `_`: `-`)
+- `<KEY>` is the argument key (normalized to lowercase, `_`: `-`)
 - `value` is parsed as YAML (supports numbers, booleans, strings, arrays)
 
 #### Examples
@@ -78,10 +78,10 @@ Environment variable values are automatically converted based on their format:
 
 | Input          | Parsed As | Example                         |
 | -------------- | --------- | ------------------------------- |
-| `123`          | Number    | `2048` → u64                    |
-| `true`/`false` | Boolean   | `true` → bool                   |
-| `[1,2,3]`      | Array     | `[8.8.8.8, 1.1.1.1]` → Sequence |
-| `text`         | String    | `debug` → String                |
+| `123`          | Number    | `2048`: u64                    |
+| `true`/`false` | Boolean   | `true`: bool                   |
+| `[1,2,3]`      | Array     | `[8.8.8.8, 1.1.1.1]`: Sequence |
+| `text`         | String    | `debug`: String                |
 
 ## Usage Examples
 
@@ -207,7 +207,7 @@ cargo test -- --test-threads=1
 1. **Check the variable name**: Ensure it matches the pattern exactly
 
    - Plugin tags must use `_` which get converted to `-`
-   - Example: `add_gfwlist` → `add-gfwlist`
+   - Example: `add_gfwlist`: `add-gfwlist`
 
 2. **Check the plugin exists**: If a plugin with the tag doesn't exist, a warning is logged
 

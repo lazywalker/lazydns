@@ -141,10 +141,7 @@ impl ServerLauncher {
         Self { registry }
     }
 
-    /// Launch all servers configured in the plugin list
-    ///
-    /// This method iterates through all plugin configurations and launches the appropriate
-    /// server type for each recognized plugin. Unknown plugin types are silently ignored.
+    /// Launch all servers configured in the plugin list.
     ///
     /// # Arguments
     ///

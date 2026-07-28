@@ -266,12 +266,12 @@ mod tests {
 
     #[test]
     fn parse_sequence_steps_empty_for_non_sequence() {
-        // Mapping args (not a sequence) → empty steps, no panic.
+        // Mapping args (not a sequence): empty steps, no panic.
         let args: Value = serde_yaml::from_str("size: 1024").unwrap();
         let steps = parse_sequence_steps(&args);
         assert!(steps.is_empty());
 
-        // Null args → empty steps.
+        // Null args: empty steps.
         assert!(parse_sequence_steps(&Value::Null).is_empty());
     }
 

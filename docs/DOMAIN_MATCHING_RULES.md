@@ -64,9 +64,9 @@ regexp:.*\.google\.com$
 #### Examples
 
 ```
-full:google.com         → matches only "google.com"
-full:api.github.com     → matches only "api.github.com"
-                        → does NOT match "github.com" or "www.api.github.com"
+full:google.com        : matches only "google.com"
+full:api.github.com    : matches only "api.github.com"
+                       : does NOT match "github.com" or "www.api.github.com"
 ```
 
 ### 2. Domain Match (`domain:`)
@@ -103,9 +103,9 @@ Query other.com:
 #### Examples
 
 ```
-domain:google.com       → matches google.com, www.google.com, maps.google.com, etc.
-domain:co.uk            → matches all .co.uk domains
-example.com             → equivalent to domain:example.com (if default is domain)
+domain:google.com      : matches google.com, www.google.com, maps.google.com, etc.
+domain:co.uk           : matches all .co.uk domains
+example.com            : equivalent to domain:example.com (if default is domain)
 ```
 
 ### 3. Keyword Match (`keyword:`)
@@ -123,9 +123,9 @@ example.com             → equivalent to domain:example.com (if default is doma
 #### Examples
 
 ```
-keyword:facebook        → matches facebook.com, www.facebook.com, facebook.com.cn, myfacebook.net, etc.
-keyword:google          → matches google.com, mygoogle.com, google.com.hk, googlechrome.com, etc.
-keyword:cdn             → matches cdn.com, mycdn.net, ocdn.org, etc. (be careful!)
+keyword:facebook       : matches facebook.com, www.facebook.com, facebook.com.cn, myfacebook.net, etc.
+keyword:google         : matches google.com, mygoogle.com, google.com.hk, googlechrome.com, etc.
+keyword:cdn            : matches cdn.com, mycdn.net, ocdn.org, etc. (be careful!)
 ```
 
 ### 4. Regexp Match (`regexp:`)
@@ -150,10 +150,10 @@ keyword:cdn             → matches cdn.com, mycdn.net, ocdn.org, etc. (be caref
 #### Examples
 
 ```
-regexp:.+\.github\.io$          → matches *.github.io (personal GitHub Pages)
-regexp:^api\.                   → matches api.example.com, api.service.com, etc.
-regexp:(qq\|wechat)             → matches qq.com, wechat.com
-regexp:.*cdn.*                  → matches any domain containing "cdn"
+regexp:.+\.github\.io$         : matches *.github.io (personal GitHub Pages)
+regexp:^api\.                  : matches api.example.com, api.service.com, etc.
+regexp:(qq\|wechat)            : matches qq.com, wechat.com
+regexp:.*cdn.*                 : matches any domain containing "cdn"
 ```
 
 #### Performance Warning
@@ -410,7 +410,7 @@ regexp:^192-168-.*\.nip\.io$
 4. **Whitespace**
    ```
    Leading and trailing whitespace is trimmed
-     example.com     →  matches "example.com"
+     example.com    :  matches "example.com"
    ```
 
 5. **Empty Lines**

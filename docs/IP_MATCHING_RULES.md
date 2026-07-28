@@ -202,21 +202,21 @@ IP addresses are matched against CIDR networks using network containment logic:
 **Rule:** `192.168.0.0/24`
 
 ```
-192.168.0.0      → ✓ Match (network address)
-192.168.0.1      → ✓ Match
-192.168.0.128    → ✓ Match
-192.168.0.255    → ✓ Match (broadcast address)
-192.168.1.0      → ✗ No match (different network)
-192.167.255.255  → ✗ No match
+192.168.0.0     : ✓ Match (network address)
+192.168.0.1     : ✓ Match
+192.168.0.128   : ✓ Match
+192.168.0.255   : ✓ Match (broadcast address)
+192.168.1.0     : ✗ No match (different network)
+192.167.255.255 : ✗ No match
 ```
 
 **Rule:** `10.0.0.0/8` (16,777,216 addresses)
 
 ```
-10.0.0.0         → ✓ Match
-10.1.2.3         → ✓ Match
-10.255.255.255   → ✓ Match
-11.0.0.0         → ✗ No match
+10.0.0.0        : ✓ Match
+10.1.2.3        : ✓ Match
+10.255.255.255  : ✓ Match
+11.0.0.0        : ✗ No match
 ```
 
 ### Single Address Rules
@@ -226,9 +226,9 @@ Single addresses are treated as `/32` (IPv4) or `/128` (IPv6) networks:
 **Rule:** `192.168.1.100` (stored internally as `192.168.1.100/32`)
 
 ```
-192.168.1.100    → ✓ Match (exact)
-192.168.1.101    → ✗ No match
-192.168.1.99     → ✗ No match
+192.168.1.100   : ✓ Match (exact)
+192.168.1.101   : ✗ No match
+192.168.1.99    : ✗ No match
 ```
 
 ### IPv4 and IPv6 Coexistence
@@ -416,7 +416,7 @@ partner-ips.txt:
 **Problem:** DNS queries are slow with IP Set plugin
 
 **Solutions:**
-1. Reduce number of rules (1000+ rules → ~100µs per query)
+1. Reduce number of rules (1000+ rules: ~100µs per query)
 2. Use CIDR notation instead of individual IPs
 3. Order most-frequently-matched rules first (hint: no optimization exists currently)
 4. Consider splitting into multiple IP Sets by category
@@ -455,8 +455,8 @@ partner-ips.txt:
 All IP Set plugin operations return a boolean:
 
 ```
-true   → IP is in the matched set
-false  → IP is not in the set
+true  : IP is in the matched set
+false : IP is not in the set
 ```
 
 ## Examples

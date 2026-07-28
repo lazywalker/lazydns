@@ -112,11 +112,7 @@ impl PluginBuilder {
                 }
             }
 
-            // Accept tcp/udp/doh/dot/doq server plugin types at build time so configuration
-            // parsing succeeds. The actual servers are started by the application
-            // runtime (launcher.rs), which matches these plugin types itself. Here we
-            // return a benign plugin instance (AcceptPlugin) so the name is registered
-            // and can be referenced by other plugins.
+            // Server types are stubs here; the launcher starts the real servers.
             "tcp_server" | "udp_server" | "doh_server" | "dot_server" | "doq_server" => {
                 Arc::new(crate::plugins::AcceptPlugin::new())
             }
@@ -221,12 +217,7 @@ impl PluginBuilder {
         registry
     }
 
-    /// Shutdown all plugins
-    ///
-    /// This method iterates through all registered plugins and calls their
-    /// shutdown method for graceful cleanup.
-    ///
-    /// # Returns
+    /// Shutdown all registered plugins.
     ///
     /// Returns `Ok(())` if all plugins shut down successfully, or the first
     /// error encountered during shutdown.
@@ -243,16 +234,9 @@ impl PluginBuilder {
         Ok(())
     }
 
-    /// Start background tasks for plugins that need them
-    ///
-    /// This method iterates through all registered plugins and starts any
-    /// background tasks they may require (e.g., cache cleanup tasks).
-    ///
-    /// # Returns
+    /// Start background tasks for plugins that need them.
     ///
     /// Returns a vector of JoinHandles for the spawned background tasks.
-    /// Start background tasks for plugins that need them
-    ///
     /// This uses the unified `Plugin::spawn_background_task()` method.
     /// Plugins that need background tasks (cache cleanup, rate limit cleanup, etc.)
     /// implement this method to return their task handle.
