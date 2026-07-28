@@ -77,32 +77,32 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 /// TTL used when serving stale responses during cache_ttl window
 const STALE_RESPONSE_TTL_SECS: u32 = 5;
 
+mod persistence;
+
 /// Cache entry storing a DNS response with metadata
 #[derive(Clone)]
-struct CacheEntry {
-    /// Cached DNS response message (shared)
-    response: Arc<Message>,
-    /// When this entry was created
-    cached_at: Instant,
-    /// Time-to-live for this entry (message TTL in seconds)
-    ttl: u32,
-    /// Maximum lifetime of the cached entry (cache TTL in seconds)
-    cache_ttl: u32,
-    /// Original TTL when first cached (used for lazycache threshold calculation)
-    original_ttl: u32,
-    /// Last access time for LRU tracking
-    last_accessed: Instant,
+pub struct CacheEntry {
+    pub response: Arc<Message>,
+    pub cached_at: Instant,
+    pub ttl: u32,
+    pub cache_ttl: u32,
+    pub original_ttl: u32,
+    pub last_accessed: Instant,
+    pub cached_at_unix: u64,
 }
 
 impl CacheEntry {
-    /// Create a new cache entry
     fn new(response: Message, ttl: u32, cache_ttl: u32) -> Self {
         let now = Instant::now();
+        let cached_at_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         Self {
             response: Arc::new(response),
             cached_at: now,
@@ -110,6 +110,7 @@ impl CacheEntry {
             cache_ttl,
             original_ttl: ttl,
             last_accessed: now,
+            cached_at_unix,
         }
     }
 
@@ -319,7 +320,7 @@ impl fmt::Display for LazyCacheStats {
 /// When enabled, if a cached entry's TTL drops below the threshold (such as 10%),
 /// the entry is marked for lazy refresh. A background task or next access
 /// will trigger a refresh query to keep the cache warm.
-#[derive(Clone, RegisterPlugin, ShutdownPlugin)]
+#[derive(RegisterPlugin, ShutdownPlugin)]
 pub struct CachePlugin {
     /// The cache storage (domain name -> cache entry)
     cache: Arc<parking_lot::RwLock<LruCache<String, CacheEntry>>>,
@@ -351,6 +352,37 @@ pub struct CachePlugin {
     cleanup_interval_secs: u64,
     /// Trigger cleanup when cache reaches this percentage of max size (default: 0.8 = 80%)
     cleanup_pressure_threshold: f32,
+    /// Optional path to persist cache across restarts.
+    dump_file: Option<std::path::PathBuf>,
+    /// Seconds between periodic dumps (default 600).
+    dump_interval_secs: u64,
+    /// Writes since last dump; triggers dump when it exceeds threshold.
+    changes_since_dump: AtomicU64,
+}
+
+impl Clone for CachePlugin {
+    fn clone(&self) -> Self {
+        Self {
+            cache: Arc::clone(&self.cache),
+            max_size: self.max_size,
+            stats: Arc::clone(&self.stats),
+            negative_cache: self.negative_cache,
+            negative_ttl: self.negative_ttl,
+            enable_lazycache: self.enable_lazycache,
+            lazycache_threshold: self.lazycache_threshold,
+            cache_ttl: self.cache_ttl,
+            lazycache_stats: Arc::clone(&self.lazycache_stats),
+            refreshing_keys: Arc::clone(&self.refreshing_keys),
+            tag: self.tag.clone(),
+            refresh_coordinator: Arc::clone(&self.refresh_coordinator),
+            enable_cleanup: self.enable_cleanup,
+            cleanup_interval_secs: self.cleanup_interval_secs,
+            cleanup_pressure_threshold: self.cleanup_pressure_threshold,
+            dump_file: self.dump_file.clone(),
+            dump_interval_secs: self.dump_interval_secs,
+            changes_since_dump: AtomicU64::new(self.changes_since_dump.load(Ordering::Relaxed)),
+        }
+    }
 }
 
 impl CachePlugin {
@@ -385,6 +417,9 @@ impl CachePlugin {
             enable_cleanup: true,
             cleanup_interval_secs: 60,
             cleanup_pressure_threshold: 0.8,
+            dump_file: None,
+            dump_interval_secs: 600,
+            changes_since_dump: AtomicU64::new(0),
         }
     }
 
@@ -684,6 +719,30 @@ impl CachePlugin {
         {
             metrics::CACHE_SIZE.set(cache.len() as i64);
         }
+
+        self.changes_since_dump.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Snapshot all cache entries for persistence.
+    fn snapshot_entries(&self) -> Vec<(String, CacheEntry)> {
+        let cache = self.cache.read();
+        cache.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    }
+
+    /// Dump cache to disk if a dump file is configured.
+    fn dump_to_file(&self) {
+        if let Some(ref path) = self.dump_file {
+            let entries = self.snapshot_entries();
+            match persistence::dump_cache(path, &entries) {
+                Ok(()) => {
+                    debug!(entries = entries.len(), path = %path.display(), "cache dumped");
+                    self.changes_since_dump.store(0, Ordering::Relaxed);
+                }
+                Err(e) => {
+                    warn!(error = %e, "failed to dump cache");
+                }
+            }
+        }
     }
 
     /// Get minimum TTL from a DNS message
@@ -849,7 +908,6 @@ impl BackgroundTask for CachePlugin {
     fn run_background_task(&self) {
         let removed = self.cleanup_expired();
 
-        // Check if pressure-based cleanup is needed
         if self.should_cleanup_pressure() {
             debug!(
                 "Memory pressure detected: {} / {}",
@@ -862,6 +920,12 @@ impl BackgroundTask for CachePlugin {
                 pressure_removed,
                 removed + pressure_removed
             );
+        }
+
+        if self.dump_file.is_some()
+            && self.changes_since_dump.load(Ordering::Relaxed) >= persistence::dump_threshold()
+        {
+            self.dump_to_file();
         }
     }
 
@@ -1221,6 +1285,53 @@ impl Plugin for CachePlugin {
         const CLEANUP_PRESSURE_THRESHOLD: f32 = 0.8;
         cache = cache.with_cleanup(true, CLEANUP_INTERVAL_SECS, CLEANUP_PRESSURE_THRESHOLD);
 
+        // Parse cache persistence options.
+        if let Some(Value::String(s)) = args.get("dump_file") {
+            cache.dump_file = Some(std::path::PathBuf::from(s));
+
+            if let Some(Value::Number(n)) = args.get("dump_interval") {
+                cache.dump_interval_secs = n.as_u64().unwrap_or(600);
+            }
+
+            // Load existing dump into the cache.
+            if let Some(ref path) = cache.dump_file {
+                match persistence::load_cache(path) {
+                    Ok(loaded) => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+
+                        let mut count = 0;
+                        let mut c = cache.cache.write();
+                        for entry in loaded {
+                            let elapsed = now.saturating_sub(entry.cached_at_unix);
+                            let remaining = entry.original_ttl.saturating_sub(elapsed as u32);
+                            if remaining == 0 {
+                                continue;
+                            }
+
+                            let cache_entry = CacheEntry {
+                                response: std::sync::Arc::new(entry.response),
+                                cached_at: Instant::now(),
+                                ttl: remaining,
+                                cache_ttl: 0,
+                                original_ttl: entry.original_ttl,
+                                last_accessed: Instant::now(),
+                                cached_at_unix: entry.cached_at_unix,
+                            };
+                            c.push(entry.key, cache_entry);
+                            count += 1;
+                        }
+                        debug!(loaded = count, "restored cache entries from dump");
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "failed to load cache dump");
+                    }
+                }
+            }
+        }
+
         // Set tag from config
         cache.tag = config.tag.clone();
 
@@ -1241,11 +1352,11 @@ impl Plugin for CachePlugin {
 #[async_trait]
 impl Shutdown for CachePlugin {
     async fn shutdown(&self) -> Result<()> {
-        // Shutdown the refresh coordinator if it exists
         if let Some(coordinator) = self.refresh_coordinator.lock().await.take() {
             debug!("Shutting down CachePlugin refresh coordinator");
             coordinator.shutdown().await?;
         }
+        self.dump_to_file();
         Ok(())
     }
 }
