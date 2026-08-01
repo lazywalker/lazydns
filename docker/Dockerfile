@@ -30,16 +30,18 @@ RUN set -ex; \
     *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
     esac; \
     if [ "$TARGETARCH" = "arm" ]; then \
-    BINARY_NAME="lazydns-full-${ARCH}-unknown-linux-musleabihf.tar.gz"; \
+      SUFFIX="arm-unknown-linux-musleabihf"; \
     else \
-    BINARY_NAME="lazydns-full-${ARCH}-unknown-linux-musl.tar.gz"; \
+      SUFFIX="aarch64-unknown-linux-musl"; \
     fi; \
+    if [ "${LAZYDNS_VERSION}" = "latest" ]; then \
+      VER=$(curl -s https://api.github.com/repos/lazywalker/lazydns/releases/latest | grep -m1 '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/'); \
+    else \
+      VER="${LAZYDNS_VERSION#v}"; \
+    fi; \
+    BINARY_NAME="lazydns-full-${VER}-${SUFFIX}.tar.gz"; \
     BASE_URL="https://github.com/lazywalker/lazydns/releases"; \
-    if [ "${LAZYDNS_VERSION}" != "latest" ]; then \
-    URL="${BASE_URL}/download/${LAZYDNS_VERSION}/${BINARY_NAME}"; \
-    else \
-    URL="${BASE_URL}/latest/download/${BINARY_NAME}"; \
-    fi; \
+    URL="${BASE_URL}/download/v${VER}/${BINARY_NAME}"; \
     echo "Downloading from ${URL}"; \
     curl -L -o lazydns-full.tar.gz "${URL}" \
     && tar -xzf lazydns-full.tar.gz \

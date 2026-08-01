@@ -120,6 +120,11 @@ jobs:
             target\${{ matrix.target }}\minimal\lazydns.exe
             target\${{ matrix.target }}\full\lazydns.exe
           args: -q --best --lzma
+      - name: Resolve version
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Package release (non-Windows)
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -130,10 +135,9 @@ jobs:
           DIR=target/${{ matrix.target }}/minimal
           # Ensure the executable exists
           ls -lah "$DIR" || true
-          # Create an unversioned archive matching installer expectations:
-          # lazydns-<target>.tar.gz
+          # Versioned archive so the tap and installers can pin a release.
           cp config.yaml LICENSE "$DIR"/
-          tar czf "$DIR/lazydns-${TARGET}.tar.gz" -C "$DIR" lazydns config.yaml LICENSE
+          tar czf "$DIR/lazydns-${VERSION}-${TARGET}.tar.gz" -C "$DIR" lazydns config.yaml LICENSE
 
       - name: Package release (Windows)
         if: matrix.os == 'windows-latest'
@@ -148,8 +152,8 @@ jobs:
           # Copy config and license files
           Copy-Item -Path "config.yaml" -Destination "$DIR/"
           Copy-Item -Path "LICENSE" -Destination "$DIR/"
-          # Create an unversioned zip matching installer expectations: lazydns-<target>.zip
-          Compress-Archive -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE" -DestinationPath "$DIR/lazydns-$TARGET.zip" -Force
+          # Versioned zip so the tap and installers can pin a release.
+          Compress-Archive -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE" -DestinationPath "$DIR/lazydns-$env:VERSION-$TARGET.zip" -Force
 
       - name: Package release (non-Windows, full)
         if: matrix.os != 'windows-latest'
@@ -161,10 +165,9 @@ jobs:
           DIR=target/${{ matrix.target }}/full
           # Ensure the executable exists
           ls -lah "$DIR" || true
-          # Create an unversioned archive matching installer expectations:
-          # lazydns-full-<target>.tar.gz
+          # Versioned archive so the tap and installers can pin a release.
           cp config.yaml LICENSE "$DIR"/
-          tar czf "$DIR/lazydns-full-${TARGET}.tar.gz" -C "$DIR" lazydns config.yaml LICENSE
+          tar czf "$DIR/lazydns-full-${VERSION}-${TARGET}.tar.gz" -C "$DIR" lazydns config.yaml LICENSE
 
       - name: Package release (Windows, full)
         if: matrix.os == 'windows-latest'
@@ -179,36 +182,36 @@ jobs:
           # Copy config and license files
           Copy-Item -Path "config.yaml" -Destination "$DIR/"
           Copy-Item -Path "LICENSE" -Destination "$DIR/"
-          # Create an unversioned zip matching installer expectations: lazydns-full-<target>.zip
-          Compress-Archive -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE" -DestinationPath "$DIR/lazydns-full-$TARGET.zip" -Force
+          # Versioned zip so the tap and installers can pin a release.
+          Compress-Archive -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE" -DestinationPath "$DIR/lazydns-full-$env:VERSION-$TARGET.zip" -Force
 
       - name: Upload artifact (non-Windows)
         if: matrix.os != 'windows-latest'
         uses: actions/upload-artifact@v5
         with:
-          name: lazydns-${{ matrix.target }}.tar.gz
-          path: target/${{ matrix.target }}/minimal/lazydns-${{ matrix.target }}.tar.gz
+          name: lazydns-${{ env.VERSION }}-${{ matrix.target }}.tar.gz
+          path: target/${{ matrix.target }}/minimal/lazydns-${{ env.VERSION }}-${{ matrix.target }}.tar.gz
 
       - name: Upload artifact (Windows)
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v5
         with:
-          name: lazydns-${{ matrix.target }}.zip
-          path: target/${{ matrix.target }}/minimal/lazydns-${{ matrix.target }}.zip
+          name: lazydns-${{ env.VERSION }}-${{ matrix.target }}.zip
+          path: target/${{ matrix.target }}/minimal/lazydns-${{ env.VERSION }}-${{ matrix.target }}.zip
 
       - name: Upload artifact (non-Windows, full)
         if: matrix.os != 'windows-latest'
         uses: actions/upload-artifact@v5
         with:
-          name: lazydns-full-${{ matrix.target }}.tar.gz
-          path: target/${{ matrix.target }}/full/lazydns-full-${{ matrix.target }}.tar.gz
+          name: lazydns-full-${{ env.VERSION }}-${{ matrix.target }}.tar.gz
+          path: target/${{ matrix.target }}/full/lazydns-full-${{ env.VERSION }}-${{ matrix.target }}.tar.gz
 
       - name: Upload artifact (Windows, full)
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v5
         with:
-          name: lazydns-full-${{ matrix.target }}.zip
-          path: target/${{ matrix.target }}/full/lazydns-full-${{ matrix.target }}.zip
+          name: lazydns-full-${{ env.VERSION }}-${{ matrix.target }}.zip
+          path: target/${{ matrix.target }}/full/lazydns-full-${{ env.VERSION }}-${{ matrix.target }}.zip
 
       - name: Find deb artifacts
         run: |
@@ -218,7 +221,7 @@ jobs:
       - name: Upload built .deb artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: lazydns-${{ matrix.target }}.deb
+          name: lazydns-${{ env.VERSION }}-${{ matrix.target }}.deb
           path: |
             target/debian/*.deb
 
