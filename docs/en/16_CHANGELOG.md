@@ -9,6 +9,12 @@ This file contains high-level release notes and migration guidance.
 - fix(ttl): config validation checked the `fix` key but the plugin reads `ttl`; out-of-range `ttl:` values were silently accepted
 - fix(redirect): `rules` with more than one entry silently kept only the first; now all rules apply, first match wins
 
+**Refactor**
+
+- dedup background-task spawn logic (cache, ratelimit, reverse_lookup)
+- collapse ttl/cache record loops via `Message::records_mut()`
+- dedup forward health/metrics recording via `Forward::record_outcome`
+
 ## Release v0.3.20
 
 **Cache**
