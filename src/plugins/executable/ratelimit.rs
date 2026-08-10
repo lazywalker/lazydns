@@ -112,35 +112,6 @@ impl RateLimitPlugin {
         self.limits
             .retain(|_, entry| now.duration_since(entry.window_start) < window_duration * 2);
     }
-
-    /// Spawn a background cleanup task that periodically removes expired entries
-    ///
-    /// This prevents the DashMap from growing unboundedly when there are many
-    /// unique client IPs. The cleanup runs every `window_secs * 2` seconds.
-    ///
-    /// # Returns
-    ///
-    /// A JoinHandle that can be used to abort the cleanup task if needed.
-    pub fn spawn_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let cleanup_interval = Duration::from_secs(self.window_secs.max(30) * 2);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(cleanup_interval);
-            loop {
-                interval.tick().await;
-                let before = self.limits.len();
-                self.cleanup();
-                let after = self.limits.len();
-                if before > after {
-                    debug!(
-                        "RateLimitPlugin cleanup: removed {} entries ({} -> {})",
-                        before - after,
-                        before,
-                        after
-                    );
-                }
-            }
-        })
-    }
 }
 
 impl BackgroundTask for RateLimitPlugin {

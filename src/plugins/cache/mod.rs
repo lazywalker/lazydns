@@ -381,42 +381,6 @@ impl CachePlugin {
         self.enable_cleanup
     }
 
-    /// Spawn a background cleanup task
-    ///
-    /// This task will:
-    /// 1. Run periodically based on cleanup_interval_secs
-    /// 2. Remove expired entries
-    /// 3. Trigger cleanup if memory pressure is high
-    ///
-    /// Returns a handle to the spawned task.
-    pub fn spawn_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(Duration::from_secs(self.cleanup_interval_secs));
-
-            loop {
-                interval.tick().await;
-
-                let removed = self.cleanup_expired();
-
-                // Check if pressure-based cleanup is needed
-                if self.should_cleanup_pressure() {
-                    debug!(
-                        "Memory pressure detected: {} / {}",
-                        self.size(),
-                        self.max_size
-                    );
-                    let pressure_removed = self.cleanup_expired();
-                    debug!(
-                        "Pressure cleanup removed {} entries (total in this cycle: {})",
-                        pressure_removed,
-                        removed + pressure_removed
-                    );
-                }
-            }
-        })
-    }
-
     /// Clear all entries from the cache
     pub fn clear(&self) {
         self.cache.write().clear();
@@ -529,45 +493,20 @@ impl CachePlugin {
     /// Get minimum TTL from a DNS message
     fn get_min_ttl(message: &Message) -> u32 {
         let mut min_ttl = u32::MAX;
-
-        // Check answer section
-        for record in message.answers() {
+        for record in message.records() {
             min_ttl = min_ttl.min(record.ttl());
         }
 
-        // Check authority section
-        for record in message.authority() {
-            min_ttl = min_ttl.min(record.ttl());
-        }
-
-        // Check additional section
-        for record in message.additional() {
-            min_ttl = min_ttl.min(record.ttl());
-        }
-
-        // Default to 300 seconds (5 minutes) if no records found
         if min_ttl == u32::MAX {
             300
         } else {
-            // Don't cache for less than 1 second
             min_ttl.max(1)
         }
     }
 
     /// Update TTLs in a cached response
     fn update_ttls(message: &mut Message, remaining_ttl: u32) {
-        // Update TTLs in answer section
-        for record in message.answers_mut() {
-            record.set_ttl(remaining_ttl);
-        }
-
-        // Update TTLs in authority section
-        for record in message.authority_mut() {
-            record.set_ttl(remaining_ttl);
-        }
-
-        // Update TTLs in additional section
-        for record in message.additional_mut() {
+        for record in message.records_mut() {
             record.set_ttl(remaining_ttl);
         }
     }
@@ -1576,7 +1515,7 @@ plugins:
     }
 
     #[tokio::test]
-    async fn test_spawn_cleanup_task() {
+    async fn test_spawn_background_task() {
         let cache = Arc::new(CachePlugin::new(100));
         let response = create_test_response();
 
@@ -1599,7 +1538,7 @@ plugins:
             Arc::new(c)
         };
 
-        let cleanup_handle = cache_with_short_interval.clone().spawn_cleanup_task();
+        let cleanup_handle = cache_with_short_interval.clone().spawn_background_task();
 
         // Wait for cleanup to run (at most 1.5 seconds)
         tokio::time::sleep(Duration::from_millis(1500)).await;
