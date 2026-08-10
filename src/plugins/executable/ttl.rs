@@ -19,51 +19,20 @@ impl TtlPlugin {
 
     fn apply(&self, ctx: &mut Context) {
         if let Some(resp) = ctx.response_mut() {
-            if self.fix > 0 {
-                for rr in resp.answers_mut().iter_mut() {
-                    rr.set_ttl(self.fix);
-                }
-                for rr in resp.authority_mut().iter_mut() {
-                    rr.set_ttl(self.fix);
-                }
-                for rr in resp.additional_mut().iter_mut() {
-                    rr.set_ttl(self.fix);
-                }
-            } else {
-                if self.min > 0 {
-                    for rr in resp.answers_mut().iter_mut() {
-                        if rr.ttl() < self.min {
-                            rr.set_ttl(self.min);
-                        }
+            for rr in resp.records_mut() {
+                let new_ttl = if self.fix > 0 {
+                    self.fix
+                } else {
+                    let mut t = rr.ttl();
+                    if self.min > 0 && t < self.min {
+                        t = self.min;
                     }
-                    for rr in resp.authority_mut().iter_mut() {
-                        if rr.ttl() < self.min {
-                            rr.set_ttl(self.min);
-                        }
+                    if self.max > 0 && t > self.max {
+                        t = self.max;
                     }
-                    for rr in resp.additional_mut().iter_mut() {
-                        if rr.ttl() < self.min {
-                            rr.set_ttl(self.min);
-                        }
-                    }
-                }
-                if self.max > 0 {
-                    for rr in resp.answers_mut().iter_mut() {
-                        if rr.ttl() > self.max {
-                            rr.set_ttl(self.max);
-                        }
-                    }
-                    for rr in resp.authority_mut().iter_mut() {
-                        if rr.ttl() > self.max {
-                            rr.set_ttl(self.max);
-                        }
-                    }
-                    for rr in resp.additional_mut().iter_mut() {
-                        if rr.ttl() > self.max {
-                            rr.set_ttl(self.max);
-                        }
-                    }
-                }
+                    t
+                };
+                rr.set_ttl(new_ttl);
             }
         }
     }
