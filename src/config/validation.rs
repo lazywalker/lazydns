@@ -176,7 +176,7 @@ fn validate_plugin_args(
             validate_u64_range(args, "window_secs", MIN_WINDOW_SECS, MAX_WINDOW_SECS, false)?;
         }
         "ttl" => {
-            validate_u32_range(args, "fix", 0, MAX_TTL, true)?;
+            validate_u32_range(args, "ttl", 0, MAX_TTL, true)?;
             validate_u32_range(args, "min", 0, MAX_TTL, true)?;
             validate_u32_range(args, "max", 0, MAX_TTL, true)?;
         }

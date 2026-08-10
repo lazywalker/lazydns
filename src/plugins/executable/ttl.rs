@@ -1,23 +1,10 @@
 use crate::config::PluginConfig;
 use crate::plugin::{Context, ExecPlugin, Plugin};
-/// This plugin can either set a fixed TTL for all response records,
-/// or enforce a minimum/maximum TTL range. Use `fix` to set all TTLs to
-/// an exact value (>0); otherwise `min` and/or `max` are applied.
-///
-/// Quick setup strings are supported via `quick_setup`, for example "60" (fix=60)
-/// or "30-300" (min=30, max=300).
 use crate::{RegisterExecPlugin, Result};
 use async_trait::async_trait;
 use std::fmt;
 use std::sync::Arc;
 
-/// TTL plugin: fix or clamp TTLs on responses
-/// TTL plugin configuration.
-///
-/// Fields:
-/// - `fix`: If >0, all record TTLs will be set to this value.
-/// - `min`: Minimum TTL to enforce when `fix == 0`.
-/// - `max`: Maximum TTL to enforce when `fix == 0`.
 #[derive(RegisterExecPlugin)]
 pub struct TtlPlugin {
     fix: u32,
@@ -26,19 +13,10 @@ pub struct TtlPlugin {
 }
 
 impl TtlPlugin {
-    /// Create a new `TtlPlugin`.
-    ///
-    /// - `fix`: if non-zero, sets all TTLs to this value.
-    /// - `min`: minimum TTL to clamp to when `fix` is zero.
-    /// - `max`: maximum TTL to clamp to when `fix` is zero.
     pub fn new(fix: u32, min: u32, max: u32) -> Self {
         Self { fix, min, max }
     }
 
-    /// Apply TTL rules to the response contained in `ctx`.
-    ///
-    /// If `fix` > 0, all records have their TTL replaced with `fix`.
-    /// Otherwise `min` and `max` are enforced where set (>0).
     fn apply(&self, ctx: &mut Context) {
         if let Some(resp) = ctx.response_mut() {
             if self.fix > 0 {
@@ -103,9 +81,6 @@ impl Plugin for TtlPlugin {
         "ttl"
     }
 
-    /// Execute the plugin for a given request context.
-    ///
-    /// This will modify any response in the context to adjust TTLs.
     async fn execute(&self, ctx: &mut Context) -> Result<()> {
         self.apply(ctx);
         Ok(())
@@ -114,18 +89,11 @@ impl Plugin for TtlPlugin {
     fn init(config: &PluginConfig) -> Result<Arc<dyn Plugin>> {
         let args = config.effective_args();
 
-        // Support three modes:
-        //   ttl: <n>           -> overwrite every TTL with n
-        //   min: <n>           -> clamp TTLs up to at least n
-        //   max: <n>           -> clamp TTLs down to at most n
-        // min/max can be combined; ttl takes precedence when set.
-        // Previously only `ttl` was honored and min/max were silently ignored.
         let ttl = args.get("ttl").and_then(|v| v.as_i64()).unwrap_or(0) as u32;
         let min = args.get("min").and_then(|v| v.as_i64()).unwrap_or(0) as u32;
         let max = args.get("max").and_then(|v| v.as_i64()).unwrap_or(0) as u32;
 
-        // Default to a 300s fixed TTL only when nothing was configured, to
-        // preserve historical behavior for configs that omit every field.
+        // preserve old behavior: bare `ttl:` with no other args defaults to 300s
         let (fix, min, max) = if ttl == 0 && min == 0 && max == 0 {
             (300, 0, 0)
         } else {
@@ -136,10 +104,6 @@ impl Plugin for TtlPlugin {
 }
 
 impl ExecPlugin for TtlPlugin {
-    /// Parse a quick configuration string.
-    ///
-    /// Accepts either a range `"min-max"` or a single fixed value.
-    /// Returns a `TtlPlugin` configured accordingly.
     fn quick_setup(prefix: &str, exec_str: &str) -> Result<Arc<dyn Plugin>> {
         if prefix != "ttl" {
             return Err(crate::Error::Config(format!(
