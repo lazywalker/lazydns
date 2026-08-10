@@ -8,7 +8,50 @@ use async_trait::async_trait;
 use std::fmt;
 use tracing::debug;
 
-// Auto-register using the register macro
+struct Rule {
+    from: String,
+    to: String,
+}
+
+impl Rule {
+    fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
+        Self {
+            from: from.into(),
+            to: to.into(),
+        }
+    }
+
+    fn matches(&self, qname: &str) -> bool {
+        let from_lower = self.from.to_lowercase();
+        let qname_lower = qname.to_lowercase();
+
+        if let Some(suffix) = from_lower.strip_prefix("*.") {
+            // Require a dot boundary so "evilexample.com" does not match "*.example.com".
+            qname_lower == suffix || qname_lower.ends_with(&format!(".{suffix}"))
+        } else {
+            qname_lower == from_lower
+        }
+    }
+
+    fn apply(&self, qname: &str) -> String {
+        let from_lower = self.from.to_lowercase();
+        let qname_lower = qname.to_lowercase();
+        let to_lower = self.to.to_lowercase();
+
+        if let (Some(from_suffix), Some(to_suffix)) =
+            (from_lower.strip_prefix("*."), to_lower.strip_prefix("*."))
+            && let Some(mut prefix) = qname_lower.strip_suffix(from_suffix)
+        {
+            if prefix.ends_with('.') && to_suffix.starts_with('.') {
+                prefix = &prefix[..prefix.len() - 1];
+            }
+            return format!("{}{}", prefix, to_suffix);
+        }
+
+        // Preserve original case from config.
+        self.to.clone()
+    }
+}
 
 /// Plugin that redirects queries from one domain to another
 ///
@@ -25,72 +68,26 @@ use tracing::debug;
 /// ```
 #[derive(RegisterPlugin)]
 pub struct RedirectPlugin {
-    /// Source domain pattern
-    from_domain: String,
-    /// Target domain
-    to_domain: String,
+    rules: Vec<Rule>,
 }
 
 impl RedirectPlugin {
-    /// Create a new redirect plugin
-    ///
-    /// # Arguments
-    ///
-    /// * `from_domain` - Domain pattern to match (can include wildcards)
-    /// * `to_domain` - Target domain to redirect to
+    /// Create a redirect plugin with a single rule.
     pub fn new(from_domain: impl Into<String>, to_domain: impl Into<String>) -> Self {
         Self {
-            from_domain: from_domain.into(),
-            to_domain: to_domain.into(),
+            rules: vec![Rule::new(from_domain, to_domain)],
         }
     }
 
-    /// Check if a domain matches the from pattern
-    fn matches(&self, qname: &str) -> bool {
-        let from_lower = self.from_domain.to_lowercase();
-        let qname_lower = qname.to_lowercase();
-
-        if let Some(suffix) = from_lower.strip_prefix("*.") {
-            // Wildcard match: the query must equal the suffix (such as "old.com")
-            // or be a proper subdomain of it ("www.old.com"). Requiring a dot
-            // boundary prevents "evilexample.com" from matching "*.example.com".
-            qname_lower == suffix || qname_lower.ends_with(&format!(".{suffix}"))
-        } else {
-            // Exact match
-            qname_lower == from_lower
-        }
-    }
-
-    /// Perform the redirection
-    fn redirect(&self, qname: &str) -> String {
-        let from_lower = self.from_domain.to_lowercase();
-        let qname_lower = qname.to_lowercase();
-        let to_lower = self.to_domain.to_lowercase();
-
-        if let (Some(from_suffix), Some(to_suffix)) =
-            (from_lower.strip_prefix("*."), to_lower.strip_prefix("*."))
-        {
-            // Both are wildcards - replace suffix
-
-            if let Some(mut prefix) = qname_lower.strip_suffix(from_suffix) {
-                // Remove trailing dot if present to avoid double dots
-                if prefix.ends_with('.') && to_suffix.starts_with('.') {
-                    prefix = &prefix[..prefix.len() - 1];
-                }
-                return format!("{}{}", prefix, to_suffix);
-            }
-        }
-
-        // Simple replacement - use original to_domain to preserve case
-        self.to_domain.clone()
+    fn add_rule(&mut self, from: impl Into<String>, to: impl Into<String>) {
+        self.rules.push(Rule::new(from, to));
     }
 }
 
 impl fmt::Debug for RedirectPlugin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RedirectPlugin")
-            .field("from_domain", &self.from_domain)
-            .field("to_domain", &self.to_domain)
+            .field("rules", &self.rules.len())
             .finish()
     }
 }
@@ -105,57 +102,58 @@ impl Plugin for RedirectPlugin {
         use serde_yaml::Value;
         use std::sync::Arc;
 
-        // Expect `rules` to be an array. Each entry can be a simple string
-        // like "from to" or a mapping with `from`/`to` keys. We'll use
-        // the first rule if multiple are provided.
         let args = config.effective_args();
-        if let Some(Value::Sequence(seq)) = args.get("rules") {
-            if seq.is_empty() {
-                return Err(crate::Error::Config(
-                    "redirect requires at least one rule".to_string(),
-                ));
-            }
-
-            let first = &seq[0];
-            if let Value::String(s) = first {
-                let parts: Vec<&str> = s.split_whitespace().collect();
-                if parts.len() == 2 {
-                    Ok(Arc::new(RedirectPlugin::new(
-                        parts[0].to_string(),
-                        parts[1].to_string(),
-                    )))
-                } else {
-                    Err(crate::Error::Config(
-                        "redirect rule must be 'from to'".to_string(),
-                    ))
-                }
-            } else if let Value::Mapping(map) = first {
-                let from = map
-                    .get(Value::String("from".to_string()))
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        crate::Error::Config("redirect rule mapping missing 'from'".to_string())
-                    })?;
-                let to = map
-                    .get(Value::String("to".to_string()))
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        crate::Error::Config("redirect rule mapping missing 'to'".to_string())
-                    })?;
-                Ok(Arc::new(RedirectPlugin::new(
-                    from.to_string(),
-                    to.to_string(),
-                )))
-            } else {
-                Err(crate::Error::Config(
-                    "unsupported redirect rule format".to_string(),
-                ))
-            }
-        } else {
-            Err(crate::Error::Config(
+        let Some(Value::Sequence(seq)) = args.get("rules") else {
+            return Err(crate::Error::Config(
                 "redirect plugin requires 'rules' array".to_string(),
-            ))
+            ));
+        };
+        if seq.is_empty() {
+            return Err(crate::Error::Config(
+                "redirect requires at least one rule".to_string(),
+            ));
         }
+
+        let mut plugin = RedirectPlugin {
+            rules: Vec::with_capacity(seq.len()),
+        };
+
+        for entry in seq {
+            let (from, to) = match entry {
+                Value::String(s) => {
+                    let parts: Vec<&str> = s.split_whitespace().collect();
+                    if parts.len() != 2 {
+                        return Err(crate::Error::Config(format!(
+                            "redirect rule must be 'from to', got: {s}"
+                        )));
+                    }
+                    (parts[0].to_string(), parts[1].to_string())
+                }
+                Value::Mapping(map) => {
+                    let from = map
+                        .get(Value::String("from".to_string()))
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            crate::Error::Config("redirect rule missing 'from'".to_string())
+                        })?;
+                    let to = map
+                        .get(Value::String("to".to_string()))
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            crate::Error::Config("redirect rule missing 'to'".to_string())
+                        })?;
+                    (from.to_string(), to.to_string())
+                }
+                other => {
+                    return Err(crate::Error::Config(format!(
+                        "unsupported redirect rule format: {other:?}"
+                    )));
+                }
+            };
+            plugin.add_rule(from, to);
+        }
+
+        Ok(Arc::new(plugin))
     }
 
     async fn execute(&self, ctx: &mut Context) -> Result<()> {
@@ -164,11 +162,10 @@ impl Plugin for RedirectPlugin {
         if let Some(question) = request.questions_mut().first_mut() {
             let qname = question.qname().to_string();
 
-            if self.matches(&qname) {
-                let new_qname = self.redirect(&qname);
-
+            // first match wins
+            if let Some(rule) = self.rules.iter().find(|r| r.matches(&qname)) {
+                let new_qname = rule.apply(&qname);
                 debug!("Redirecting query from {} to {}", qname, new_qname);
-
                 question.set_qname(new_qname);
             }
         }
@@ -273,5 +270,66 @@ mod tests {
 
         let request = ctx.request();
         assert_eq!(request.questions().first().unwrap().qname(), "example.net");
+    }
+
+    // Regression: init previously took only seq[0] and silently dropped the rest.
+    #[tokio::test]
+    async fn test_init_multiple_rules() {
+        use crate::config::types::PluginConfig;
+
+        let args = serde_yaml::Value::Mapping(serde_yaml::Mapping::from_iter([(
+            serde_yaml::Value::String("rules".into()),
+            serde_yaml::Value::Sequence(vec![
+                serde_yaml::Value::String("a.test a.out".into()),
+                serde_yaml::Value::String("b.test b.out".into()),
+            ]),
+        )]));
+
+        let cfg = PluginConfig {
+            tag: None,
+            plugin_type: "redirect".into(),
+            args,
+        };
+
+        let plugin = <RedirectPlugin as crate::plugin::Plugin>::init(&cfg).unwrap();
+
+        for (qname, expect) in [("a.test", "a.out"), ("b.test", "b.out")] {
+            let mut request = Message::new();
+            request.add_question(Question::new(qname, RecordType::A, RecordClass::IN));
+            let mut ctx = Context::new(request);
+            plugin.execute(&mut ctx).await.unwrap();
+            assert_eq!(ctx.request().questions().first().unwrap().qname(), expect);
+        }
+    }
+
+    // first match wins when rules overlap
+    #[tokio::test]
+    async fn test_init_multiple_rules_first_match_wins() {
+        use crate::config::types::PluginConfig;
+
+        let args = serde_yaml::Value::Mapping(serde_yaml::Mapping::from_iter([(
+            serde_yaml::Value::String("rules".into()),
+            serde_yaml::Value::Sequence(vec![
+                serde_yaml::Value::String("*.old.com first.out".into()),
+                serde_yaml::Value::String("www.old.com second.out".into()),
+            ]),
+        )]));
+
+        let cfg = PluginConfig {
+            tag: None,
+            plugin_type: "redirect".into(),
+            args,
+        };
+
+        let plugin = <RedirectPlugin as crate::plugin::Plugin>::init(&cfg).unwrap();
+
+        let mut request = Message::new();
+        request.add_question(Question::new("www.old.com", RecordType::A, RecordClass::IN));
+        let mut ctx = Context::new(request);
+        plugin.execute(&mut ctx).await.unwrap();
+        assert_eq!(
+            ctx.request().questions().first().unwrap().qname(),
+            "first.out"
+        );
     }
 }

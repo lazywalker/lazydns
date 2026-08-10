@@ -2,7 +2,14 @@
 
 This file contains high-level release notes and migration guidance.
 
-## Unreleased (v0.3.20)
+## Unreleased
+
+**Config / plugins**
+
+- fix(ttl): config validation checked the `fix` key but the plugin reads `ttl`; out-of-range `ttl:` values were silently accepted
+- fix(redirect): `rules` with more than one entry silently kept only the first; now all rules apply, first match wins
+
+## Release v0.3.20
 
 **Cache**
 
