@@ -8,7 +8,6 @@ The `domain_validator` plugin validates DNS query domain names for RFC 1035/1123
 - Configurable strict/lenient mode
 - LRU cache for validation results to improve performance
 - Prometheus metrics support (when enabled)
-- Default priority: **2100** (runs very early to filter invalid queries)
 
 ## Validation rules
 
@@ -73,7 +72,7 @@ plugins:
 
 ## Typical pipeline placement
 
-Place the `domain_validator` plugin **very early** in your pipeline (it has priority=2100 by default) to reject invalid queries before they reach expensive plugins like cache or forward:
+Place the `domain_validator` plugin **very early** in your pipeline to reject invalid queries before they reach expensive plugins like cache or forward:
 
 ```yaml
 plugins:

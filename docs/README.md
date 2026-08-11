@@ -74,7 +74,5 @@ These files live at the `docs/` root (non-recursive) and cover targeted topics u
 - [IMPLEMENTATION](IMPLEMENTATION.md): Design notes and implementation details.
 - [IP_MATCHING_RULES](IP_MATCHING_RULES.md): IP/CIDR matching rules and examples.
 - [DOMAIN_MATCHING_RULES](DOMAIN_MATCHING_RULES.md): Domain matching and suffix rules.
-- [PLUGINS_AUDIT_PLUGINS](PLUGINS_AUDIT_PLUGINS.md): Guidance for auditing and reviewing plugins.
 - [PLUGIN_DOWNLOADER](PLUGIN_DOWNLOADER.md): How the plugin downloader works and how to use it.
 - [UPSTREAM_FEATURES](UPSTREAM_FEATURES.md): List of upstream (`mosdns`) features and differences.
-- [BREAKING_CHANGE_REQUESTCONTEXT](BREAKING_CHANGE_REQUESTCONTEXT.md): Migration notes for RequestContext breaking changes.

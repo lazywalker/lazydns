@@ -10,7 +10,6 @@ The `forward` plugin forwards DNS queries to upstream resolvers. It supports mul
 - Failover with configurable `max_attempts`
 - Optional concurrent/race queries (`concurrent`)
 - Supports upstream tagging (for logs/metrics) via `addr|tag` syntax
-- Default priority: **100** (suitable for forwarding near the end of the quick-hit pipeline)
 
 ## Behavior details
 

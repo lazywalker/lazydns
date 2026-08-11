@@ -7,7 +7,6 @@ The `acl` plugin controls access to the DNS server based on the client's IP addr
 - Rules are evaluated in the order configured; the first matching rule wins.
 - If no rule matches, the plugin uses the configured `default` action (`allow` or `deny`).
 - The plugin reads the client IP from request metadata key `client_ip`. If `client_ip` is absent, the plugin defaults to `127.0.0.1` (and logs a warning).
-- Default priority: **2000** (runs very early in the pipeline).
 
 ## Configuration
 

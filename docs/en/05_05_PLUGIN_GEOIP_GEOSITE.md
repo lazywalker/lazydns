@@ -17,7 +17,7 @@ Both plugins are useful for routing and policy decisions (such as sending China-
 
 - Examines the answer section for A/AAAA records and looks up the IP against configured CIDR ranges.
 - Stores the first matched ISO-3166 alpha-2 country code under a metadata key (default: `country`).
-- Runs after a response is produced and before routing decisions (priority: **-20**).
+- Runs after a response is produced and before routing decisions.
 
 **Configuration options**:
 
@@ -68,7 +68,7 @@ plugins:
 - Examines the first question (A/AAAA only) and attempts to match the qname against configured domain sets.
 - Supports exact matches and suffix/wildcard patterns (such as `*.qq.com` matching `mail.qq.com`).
 - Stores the category under a metadata key (default: `category`).
-- Runs early to tag requests (priority: **70**).
+- Runs early to tag requests.
 
 **Configuration options**:
 

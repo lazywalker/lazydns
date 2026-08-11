@@ -71,7 +71,7 @@ plugins:
 
 ## Behavior and lifecycle
 
-- The `cron` plugin does not run per-DNS-request (`should_execute` returns false); it runs jobs in background tasks.
+- The `cron` plugin does not run per-DNS-request; it runs jobs in background tasks.
 - On server shutdown the plugin signals jobs to stop and awaits job tasks to finish.
 - `invoke_plugin` actions construct a temporary plugin instance using the project's plugin factory and execute it with a fresh `Context` and an empty `Message`.
 
