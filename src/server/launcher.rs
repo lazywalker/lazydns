@@ -265,175 +265,71 @@ impl ServerLauncher {
         })
     }
 
-    /// Launch UDP server
-    ///
-    /// Creates and starts a UDP DNS server based on the plugin configuration.
-    /// The server will listen on the specified address and use the configured entry plugin.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_config` - Plugin configuration containing server settings
-    ///
-    /// # Configuration Parameters
-    ///
-    /// - `listen`: Listen address (default: "0.0.0.0:53")
-    /// - `entry`: Entry plugin name (default: "main_sequence")
-    ///
-    /// # Behavior
-    ///
-    /// - Parses the listen address from plugin args
-    /// - Creates a UDP server with the specified configuration
-    /// - Spawns the server in a background task
-    /// - Logs errors if server creation or startup fails
-    ///
-    /// # Examples
-    ///
-    /// ```yaml
-    /// plugins:
-    ///   - type: udp_server
-    ///     args:
-    ///       listen: "127.0.0.1:5353"
-    ///       entry: "main_sequence"
-    /// ```
+    // Spawn a server future in a background task, returning a receiver that
+    // fires when the task has started. All launch_* methods funnel through here.
+    fn spawn_server<F>(
+        label: &str,
+        addr: SocketAddr,
+        result: Result<F, crate::Error>,
+    ) -> Option<tokio::sync::oneshot::Receiver<()>>
+    where
+        F: std::future::Future<Output = crate::Result<()>> + Send + 'static,
+    {
+        match result {
+            Ok(server_fut) => {
+                let label = label.to_string();
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                tokio::spawn(async move {
+                    let _ = tx.send(());
+                    if let Err(e) = server_fut.await {
+                        error!("{} server error: {}", label, e);
+                    }
+                });
+                Some(rx)
+            }
+            Err(e) => {
+                error!("Failed to start {} server on {}: {}", label, addr, e);
+                None
+            }
+        }
+    }
+
     async fn launch_udp_server(
         &self,
         plugin_config: &PluginConfig,
     ) -> Option<tokio::sync::oneshot::Receiver<()>> {
         let args = plugin_config.effective_args();
         let addr = self.parse_listen_addr(&args, "0.0.0.0:53")?;
-
         let entry = self.get_entry(&args);
         let config = ServerConfig {
             udp_addr: Some(addr),
             ..Default::default()
         };
         let handler = self.create_handler(entry);
-
-        match UdpServer::new(config, handler).await {
-            Ok(server) => {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                tokio::spawn(async move {
-                    // Send startup completion signal immediately
-                    let _ = tx.send(());
-                    if let Err(e) = server.run().await {
-                        error!("UDP server error: {}", e);
-                    }
-                });
-                Some(rx)
-            }
-            Err(e) => {
-                error!("Failed to start UDP server on {}: {}", addr, e);
-                None
-            }
-        }
+        let result = UdpServer::new(config, handler)
+            .await
+            .map(|s| async move { s.run().await });
+        Self::spawn_server("UDP", addr, result)
     }
 
-    /// Launch TCP server
-    ///
-    /// Creates and starts a TCP DNS server based on the plugin configuration.
-    /// The server will listen on the specified address and use the configured entry plugin.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_config` - Plugin configuration containing server settings
-    ///
-    /// # Configuration Parameters
-    ///
-    /// - `listen`: Listen address (default: "0.0.0.0:53")
-    /// - `entry`: Entry plugin name (default: "main_sequence")
-    ///
-    /// # Behavior
-    ///
-    /// - Parses the listen address from plugin args
-    /// - Creates a TCP server with the specified configuration
-    /// - Spawns the server in a background task
-    /// - Logs errors if server creation or startup fails
-    ///
-    /// # Examples
-    ///
-    /// ```yaml
-    /// plugins:
-    ///   - type: tcp_server
-    ///     args:
-    ///       listen: "127.0.0.1:5353"
-    ///       entry: "main_sequence"
-    /// ```
     async fn launch_tcp_server(
         &self,
         plugin_config: &PluginConfig,
     ) -> Option<tokio::sync::oneshot::Receiver<()>> {
         let args = plugin_config.effective_args();
         let addr = self.parse_listen_addr(&args, "0.0.0.0:53")?;
-
         let entry = self.get_entry(&args);
         let config = ServerConfig {
             tcp_addr: Some(addr),
             ..Default::default()
         };
         let handler = self.create_handler(entry);
-
-        match TcpServer::new(config, handler).await {
-            Ok(server) => {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                tokio::spawn(async move {
-                    // Send startup completion signal immediately
-                    let _ = tx.send(());
-                    if let Err(e) = server.run().await {
-                        error!("TCP server error: {}", e);
-                    }
-                });
-                Some(rx)
-            }
-            Err(e) => {
-                error!("Failed to start TCP server on {}: {}", addr, e);
-                None
-            }
-        }
+        let result = TcpServer::new(config, handler)
+            .await
+            .map(|s| async move { s.run().await });
+        Self::spawn_server("TCP", addr, result)
     }
 
-    /// Launch DoH (DNS over HTTPS) server
-    ///
-    /// Creates and starts a DNS over HTTPS server based on the plugin configuration.
-    /// Requires the `tls` feature to be enabled at compile time.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_config` - Plugin configuration containing server settings
-    ///
-    /// # Configuration Parameters
-    ///
-    /// - `listen`: Listen address (default: "0.0.0.0:443")
-    /// - `entry`: Entry plugin name (default: "main_sequence")
-    /// - `cert_file`: Path to TLS certificate file (required)
-    /// - `key_file`: Path to TLS private key file (required)
-    ///
-    /// # Behavior
-    ///
-    /// - Parses the listen address from plugin args
-    /// - Loads TLS certificate and key files
-    /// - Creates a DoH server with TLS configuration
-    /// - Spawns the server in a background task
-    /// - Logs errors if TLS config loading or server startup fails
-    /// - Warns if certificate/key files are not specified
-    ///
-    /// # Examples
-    ///
-    /// ```yaml
-    /// plugins:
-    ///   - type: doh_server
-    ///     args:
-    ///       listen: "0.0.0.0:443"
-    ///       entry: "main_sequence"
-    ///       cert_file: "/path/to/cert.pem"
-    ///       key_file: "/path/to/key.pem"
-    /// ```
-    ///
-    /// # Feature Requirements
-    ///
-    /// This method is only available when the `doh` feature is enabled:
-    /// ```toml
-    /// lazydns = { version = "*", features = ["doh"] }
-    /// ```
     #[cfg(feature = "doh")]
     async fn launch_doh_server(
         &self,
@@ -442,12 +338,15 @@ impl ServerLauncher {
         let args = plugin_config.effective_args();
         let addr = self.parse_listen_addr(&args, "0.0.0.0:443")?;
 
-        let cert_path = args.get("cert_file").and_then(|v| v.as_str());
-        let key_path = args.get("key_file").and_then(|v| v.as_str());
-
-        let (Some(cert_path), Some(key_path)) = (cert_path, key_path) else {
-            warn!("doh_server plugin configured without cert_file/key_file");
-            return None;
+        let (cert_path, key_path) = match (
+            args.get("cert_file").and_then(|v| v.as_str()),
+            args.get("key_file").and_then(|v| v.as_str()),
+        ) {
+            (Some(c), Some(k)) => (c, k),
+            _ => {
+                warn!("doh_server plugin configured without cert_file/key_file");
+                return None;
+            }
         };
 
         let tls = match TlsConfig::from_files(cert_path, key_path) {
@@ -462,44 +361,22 @@ impl ServerLauncher {
         let handler = self.create_handler(entry);
         let doh_path = args.get("path").and_then(|v| v.as_str()).map(String::from);
 
-        let mut config = ServerConfig {
+        let config = ServerConfig {
             tcp_addr: Some(addr),
             handler: Some(handler),
             tls_config: Some(tls),
             doh_path,
+            cert_path: Some(cert_path.to_string()),
+            key_path: Some(key_path.to_string()),
             ..Default::default()
         };
-        // Also set cert paths for consistency
-        config.cert_path = Some(cert_path.to_string());
-        config.key_path = Some(key_path.to_string());
 
-        let server = match DohServer::from_config(config).await {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Failed to create DoH server from config: {}", e);
-                return None;
-            }
-        };
-
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            // Send startup completion signal immediately
-            let _ = tx.send(());
-            if let Err(e) = server.run().await {
-                error!("DoH server error: {}", e);
-            }
-        });
-        Some(rx)
+        let result = DohServer::from_config(config)
+            .await
+            .map(|s| async move { s.run().await });
+        Self::spawn_server("DoH", addr, result)
     }
 
-    /// Launch DoH server (TLS feature disabled)
-    ///
-    /// This is a stub implementation that logs a warning when the `tls` feature
-    /// is not enabled but a DoH server is requested.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_config` - Plugin configuration (ignored in this implementation)
     #[cfg(not(feature = "doh"))]
     async fn launch_doh_server(
         &self,
@@ -509,49 +386,6 @@ impl ServerLauncher {
         None
     }
 
-    /// Launch DoT (DNS over TLS) server
-    ///
-    /// Creates and starts a DNS over TLS server based on the plugin configuration.
-    /// Requires the `tls` feature to be enabled at compile time.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_config` - Plugin configuration containing server settings
-    ///
-    /// # Configuration Parameters
-    ///
-    /// - `listen`: Listen address (default: "0.0.0.0:853")
-    /// - `entry`: Entry plugin name (default: "main_sequence")
-    /// - `cert_file`: Path to TLS certificate file (required)
-    /// - `key_file`: Path to TLS private key file (required)
-    ///
-    /// # Behavior
-    ///
-    /// - Parses the listen address from plugin args
-    /// - Loads TLS certificate and key files
-    /// - Creates a DoT server with TLS configuration
-    /// - Spawns the server in a background task
-    /// - Logs errors if TLS config loading or server startup fails
-    /// - Warns if certificate/key files are not specified
-    ///
-    /// # Examples
-    ///
-    /// ```yaml
-    /// plugins:
-    ///   - type: dot_server
-    ///     args:
-    ///       listen: "0.0.0.0:853"
-    ///       entry: "main_sequence"
-    ///       cert_file: "/path/to/cert.pem"
-    ///       key_file: "/path/to/key.pem"
-    /// ```
-    ///
-    /// # Feature Requirements
-    ///
-    /// This method is only available when the `dot` feature is enabled:
-    /// ```toml
-    /// lazydns = { version = "*", features = ["dot"] }
-    /// ```
     #[cfg(feature = "dot")]
     async fn launch_dot_server(
         &self,
@@ -560,12 +394,15 @@ impl ServerLauncher {
         let args = plugin_config.effective_args();
         let addr = self.parse_listen_addr(&args, "0.0.0.0:853")?;
 
-        let cert_path = args.get("cert_file").and_then(|v| v.as_str());
-        let key_path = args.get("key_file").and_then(|v| v.as_str());
-
-        let (Some(cert_path), Some(key_path)) = (cert_path, key_path) else {
-            warn!("dot_server plugin configured without cert_file/key_file");
-            return None;
+        let (cert_path, key_path) = match (
+            args.get("cert_file").and_then(|v| v.as_str()),
+            args.get("key_file").and_then(|v| v.as_str()),
+        ) {
+            (Some(c), Some(k)) => (c, k),
+            _ => {
+                warn!("dot_server plugin configured without cert_file/key_file");
+                return None;
+            }
         };
 
         let tls = match TlsConfig::from_files(cert_path, key_path) {
@@ -579,43 +416,21 @@ impl ServerLauncher {
         let entry = self.get_entry(&args);
         let handler = self.create_handler(entry);
 
-        let mut config = ServerConfig {
+        let config = ServerConfig {
             tcp_addr: Some(addr),
             handler: Some(handler),
             tls_config: Some(tls),
+            cert_path: Some(cert_path.to_string()),
+            key_path: Some(key_path.to_string()),
             ..Default::default()
         };
-        // Also set cert paths for consistency
-        config.cert_path = Some(cert_path.to_string());
-        config.key_path = Some(key_path.to_string());
 
-        let server = match DotServer::from_config(config).await {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Failed to create DoT server from config: {}", e);
-                return None;
-            }
-        };
-
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            // Send startup completion signal immediately
-            let _ = tx.send(());
-            if let Err(e) = server.run().await {
-                error!("DoT server error: {}", e);
-            }
-        });
-        Some(rx)
+        let result = DotServer::from_config(config)
+            .await
+            .map(|s| async move { s.run().await });
+        Self::spawn_server("DoT", addr, result)
     }
 
-    /// Launch DoT server (TLS feature disabled)
-    ///
-    /// This is a stub implementation that logs a warning when the `tls` feature
-    /// is not enabled but a DoT server is requested.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_config` - Plugin configuration (ignored in this implementation)
     #[cfg(not(feature = "dot"))]
     async fn launch_dot_server(
         &self,
@@ -625,48 +440,6 @@ impl ServerLauncher {
         None
     }
 
-    /// Launch DoQ (DNS over QUIC) server
-    ///
-    /// Creates and starts a DNS over QUIC server based on the plugin configuration.
-    /// Requires the `doq` feature to be enabled at compile time.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_config` - Plugin configuration containing server settings
-    ///
-    /// # Configuration Parameters
-    ///
-    /// - `listen`: Listen address (default: "0.0.0.0:784")
-    /// - `entry`: Entry plugin name (default: "main_sequence")
-    /// - `cert_file`: Path to TLS certificate file (required)
-    /// - `key_file`: Path to TLS private key file (required)
-    ///
-    /// # Behavior
-    ///
-    /// - Parses the listen address from plugin args
-    /// - Creates a DoQ server with the certificate and key paths
-    /// - Spawns the server in a background task
-    /// - Logs errors if server creation or startup fails
-    /// - Warns if certificate/key files are not specified
-    ///
-    /// # Examples
-    ///
-    /// ```yaml
-    /// plugins:
-    ///   - type: doq_server
-    ///     args:
-    ///       listen: "0.0.0.0:784"
-    ///       entry: "main_sequence"
-    ///       cert_file: "/path/to/cert.pem"
-    ///       key_file: "/path/to/key.pem"
-    /// ```
-    ///
-    /// # Feature Requirements
-    ///
-    /// This method is only available when the `doq` feature is enabled:
-    /// ```toml
-    /// lazydns = { version = "*", features = ["doq"] }
-    /// ```
     #[cfg(feature = "doq")]
     async fn launch_doq_server(
         &self,
@@ -675,12 +448,15 @@ impl ServerLauncher {
         let args = plugin_config.effective_args();
         let addr = self.parse_listen_addr(&args, "0.0.0.0:784")?;
 
-        let cert_path = args.get("cert_file").and_then(|v| v.as_str());
-        let key_path = args.get("key_file").and_then(|v| v.as_str());
-
-        let (Some(cert_path), Some(key_path)) = (cert_path, key_path) else {
-            warn!("doq_server plugin configured without cert_file/key_file");
-            return None;
+        let (cert_path, key_path) = match (
+            args.get("cert_file").and_then(|v| v.as_str()),
+            args.get("key_file").and_then(|v| v.as_str()),
+        ) {
+            (Some(c), Some(k)) => (c, k),
+            _ => {
+                warn!("doq_server plugin configured without cert_file/key_file");
+                return None;
+            }
         };
 
         let entry = self.get_entry(&args);
@@ -694,33 +470,12 @@ impl ServerLauncher {
             ..Default::default()
         };
 
-        let server = match DoqServer::from_config(config).await {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Failed to create DoQ server from config: {}", e);
-                return None;
-            }
-        };
-
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            // Send startup completion signal immediately
-            let _ = tx.send(());
-            if let Err(e) = server.run().await {
-                error!("DoQ server error: {}", e);
-            }
-        });
-        Some(rx)
+        let result = DoqServer::from_config(config)
+            .await
+            .map(|s| async move { s.run().await });
+        Self::spawn_server("DoQ", addr, result)
     }
 
-    /// Launch DoQ server (DoQ feature disabled)
-    ///
-    /// This is a stub implementation that logs a warning when the `doq` feature
-    /// is not enabled but a DoQ server is requested.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_config` - Plugin configuration (ignored in this implementation)
     #[cfg(not(feature = "doq"))]
     async fn launch_doq_server(
         &self,
