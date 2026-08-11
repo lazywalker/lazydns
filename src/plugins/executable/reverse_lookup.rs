@@ -171,31 +171,6 @@ impl ReverseLookupPlugin {
         before.saturating_sub(after)
     }
 
-    /// Spawn a background cleanup task that periodically removes expired entries
-    ///
-    /// This prevents the DashMap from growing unboundedly when there are many
-    /// unique IPs that are never looked up again. The cleanup runs every 5 minutes.
-    ///
-    /// # Returns
-    ///
-    /// A JoinHandle that can be used to abort the cleanup task if needed.
-    pub fn spawn_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let cleanup_interval = Duration::from_secs(300); // 5 minutes
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(cleanup_interval);
-            loop {
-                interval.tick().await;
-                let removed = self.cleanup();
-                if removed > 0 {
-                    tracing::debug!(
-                        "ReverseLookupPlugin cleanup: removed {} expired entries",
-                        removed
-                    );
-                }
-            }
-        })
-    }
-
     /// Get the current cache size
     pub fn cache_size(&self) -> usize {
         self.cache.len()

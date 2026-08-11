@@ -4,7 +4,6 @@
 
 use crate::RegisterPlugin;
 use crate::Result;
-use crate::dns::ResponseCode;
 use crate::plugin::{Context, Plugin};
 use async_trait::async_trait;
 use ipnet::IpNet;
@@ -177,13 +176,7 @@ impl Plugin for QueryAclPlugin {
                         .await;
                 }
 
-                // Create REFUSED response
-                let mut response = crate::dns::Message::new();
-                response.set_id(ctx.request().id());
-                response.set_response(true);
-                response.set_response_code(ResponseCode::Refused);
-
-                ctx.set_response(Some(response));
+                ctx.set_refused();
                 Ok(())
             }
         }
@@ -400,7 +393,7 @@ mod tests {
         assert!(ctx.response().is_some());
         assert_eq!(
             ctx.response().unwrap().response_code(),
-            ResponseCode::Refused
+            crate::dns::ResponseCode::Refused
         );
     }
 

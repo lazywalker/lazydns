@@ -5,7 +5,6 @@
 
 use crate::RegisterPlugin;
 use crate::Result;
-use crate::dns::ResponseCode;
 use crate::dns::types::RecordType;
 use crate::plugin::{Context, Plugin};
 use async_trait::async_trait;
@@ -16,12 +15,10 @@ use tokio::sync::RwLock;
 use tracing::debug;
 
 /// Validation result
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValidationResult {
     Valid,
-    InvalidChars,
-    InvalidLength,
-    InvalidFormat,
+    Invalid(String),
 }
 
 /// Domain validator plugin
@@ -75,7 +72,7 @@ impl DomainValidatorPlugin {
     ) -> ValidationResult {
         // Basic checks
         if domain.is_empty() || domain.len() > 253 {
-            return ValidationResult::InvalidLength;
+            return ValidationResult::Invalid("invalid length".into());
         }
 
         // Allow root domain
@@ -87,13 +84,12 @@ impl DomainValidatorPlugin {
 
         for label in labels {
             if label.is_empty() || label.len() > 63 {
-                return ValidationResult::InvalidLength;
+                return ValidationResult::Invalid("invalid length".into());
             }
 
-            // Check characters
             let bytes = label.as_bytes();
             if bytes.is_empty() {
-                return ValidationResult::InvalidLength;
+                return ValidationResult::Invalid("invalid length".into());
             }
 
             // First character must be alphanumeric, except when qtype indicates
@@ -106,33 +102,31 @@ impl DomainValidatorPlugin {
                         .map(|t| matches!(t, RecordType::SVCB | RecordType::HTTPS))
                         .unwrap_or(false);
                 if !allow_underscore {
-                    return ValidationResult::InvalidChars;
+                    return ValidationResult::Invalid("invalid characters".into());
                 }
             }
 
             // Last character must be alphanumeric
             let last = bytes[bytes.len() - 1];
             if !last.is_ascii_alphanumeric() {
-                return ValidationResult::InvalidChars;
+                return ValidationResult::Invalid("invalid characters".into());
             }
 
-            // Middle characters: alphanumeric or hyphen (only if there are middle characters)
+            // Middle characters: alphanumeric or hyphen
             if bytes.len() > 2 {
                 for &b in &bytes[1..bytes.len() - 1] {
                     if !b.is_ascii_alphanumeric() && b != b'-' {
-                        return ValidationResult::InvalidChars;
+                        return ValidationResult::Invalid("invalid characters".into());
                     }
                 }
             }
 
-            // No consecutive hyphens in strict mode, except for valid Punycode
-            // A-labels (RFC 5890): "xn--<punycode>". These legitimately
-            // contain "--" right after the prefix and represent internationalized
-            // domain names; rejecting them would refuse all IDN queries.
+            // No consecutive hyphens in strict mode, except for Punycode A-labels
+            // (RFC 5890): "xn--<punycode>" legitimately contains "--".
             let is_punycode_label =
                 label.len() >= 5 && label.as_bytes()[..4].eq_ignore_ascii_case(b"xn--");
             if self.strict_mode && label.contains("--") && !is_punycode_label {
-                return ValidationResult::InvalidFormat;
+                return ValidationResult::Invalid("invalid format".into());
             }
         }
 
@@ -164,7 +158,7 @@ impl Plugin for DomainValidatorPlugin {
                     let duration = start.elapsed().as_secs_f64();
                     crate::metrics::DNS_DOMAIN_VALIDATION_DURATION_SECONDS.observe(duration);
                 }
-                return handle_result(*result, &qname, ctx).await;
+                return handle_result(result.clone(), &qname, ctx).await;
             } else {
                 // Cache miss - record it
                 #[cfg(feature = "metrics")]
@@ -183,9 +177,12 @@ impl Plugin for DomainValidatorPlugin {
         {
             let result_label = match &result {
                 ValidationResult::Valid => "valid",
-                ValidationResult::InvalidChars => "invalid_chars",
-                ValidationResult::InvalidLength => "invalid_length",
-                ValidationResult::InvalidFormat => "invalid_format",
+                ValidationResult::Invalid(r) => match r.as_str() {
+                    "invalid characters" => "invalid_chars",
+                    "invalid length" => "invalid_length",
+                    "invalid format" => "invalid_format",
+                    _ => "invalid",
+                },
             };
             crate::metrics::DNS_DOMAIN_VALIDATION_TOTAL
                 .with_label_values(&[result_label])
@@ -198,18 +195,11 @@ impl Plugin for DomainValidatorPlugin {
 
             #[cfg(feature = "metrics")]
             {
-                // Track cache size before put to detect evictions
                 let size_before = cache.len();
-                let evicted = cache.put(qname.clone(), result);
+                let evicted = cache.put(qname.clone(), result.clone());
                 let size_after = cache.len();
 
-                // Increment eviction counter if:
-                // 1. put() explicitly returned Some (key override case), OR
-                // 2. cache was at capacity before and size didn't increase (new key evicted old)
-                if evicted.is_some() {
-                    crate::metrics::DNS_DOMAIN_VALIDATION_CACHE_EVICTIONS_TOTAL.inc();
-                } else if size_before >= 100 && size_after == size_before {
-                    // Cache was full, and size didn't increase = an eviction must have occurred
+                if evicted.is_some() || (size_before >= 100 && size_after == size_before) {
                     crate::metrics::DNS_DOMAIN_VALIDATION_CACHE_EVICTIONS_TOTAL.inc();
                 }
 
@@ -218,8 +208,7 @@ impl Plugin for DomainValidatorPlugin {
 
             #[cfg(not(feature = "metrics"))]
             {
-                // No metrics enabled: just insert into cache
-                cache.put(qname.clone(), result);
+                cache.put(qname.clone(), result.clone());
             }
         }
 
@@ -254,63 +243,23 @@ impl Plugin for DomainValidatorPlugin {
 async fn handle_result(result: ValidationResult, qname: &str, ctx: &mut Context) -> Result<()> {
     match result {
         ValidationResult::Valid => Ok(()),
-        ValidationResult::InvalidChars => {
-            debug!("Rejected domain with invalid characters: {}", qname);
+        ValidationResult::Invalid(reason) => {
+            debug!("Rejected domain ({}): {}", reason, qname);
 
             #[cfg(feature = "web")]
             crate::plugins::AUDIT_LOGGER
                 .log_security_event(
                     crate::plugins::SecurityEventType::MalformedQuery,
-                    format!("Domain with invalid characters rejected: {}", qname),
+                    format!("Domain rejected ({}): {}", reason, qname),
                     ctx.get_metadata::<std::net::IpAddr>("client_ip").copied(),
                     Some(qname.to_string()),
                 )
                 .await;
 
-            set_refused_response(ctx);
-            Ok(())
-        }
-        ValidationResult::InvalidLength => {
-            debug!("Rejected domain with invalid length: {}", qname);
-
-            #[cfg(feature = "web")]
-            crate::plugins::AUDIT_LOGGER
-                .log_security_event(
-                    crate::plugins::SecurityEventType::MalformedQuery,
-                    format!("Domain with invalid length rejected: {}", qname),
-                    ctx.get_metadata::<std::net::IpAddr>("client_ip").copied(),
-                    Some(qname.to_string()),
-                )
-                .await;
-
-            set_refused_response(ctx);
-            Ok(())
-        }
-        ValidationResult::InvalidFormat => {
-            debug!("Rejected domain with invalid format: {}", qname);
-
-            #[cfg(feature = "web")]
-            crate::plugins::AUDIT_LOGGER
-                .log_security_event(
-                    crate::plugins::SecurityEventType::MalformedQuery,
-                    format!("Domain with invalid format rejected: {}", qname),
-                    ctx.get_metadata::<std::net::IpAddr>("client_ip").copied(),
-                    Some(qname.to_string()),
-                )
-                .await;
-
-            set_refused_response(ctx);
+            ctx.set_refused();
             Ok(())
         }
     }
-}
-
-fn set_refused_response(ctx: &mut Context) {
-    let mut response = crate::dns::Message::new();
-    response.set_id(ctx.request().id());
-    response.set_response(true);
-    response.set_response_code(ResponseCode::Refused);
-    ctx.set_response(Some(response));
 }
 
 impl Default for DomainValidatorPlugin {
@@ -322,6 +271,16 @@ impl Default for DomainValidatorPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn invalid_chars() -> ValidationResult {
+        ValidationResult::Invalid("invalid characters".into())
+    }
+    fn invalid_length() -> ValidationResult {
+        ValidationResult::Invalid("invalid length".into())
+    }
+    fn invalid_format() -> ValidationResult {
+        ValidationResult::Invalid("invalid format".into())
+    }
 
     #[tokio::test]
     async fn test_valid_domains() {
@@ -341,22 +300,10 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_chars() {
         let plugin = DomainValidatorPlugin::default();
-        assert_eq!(
-            plugin.validate_domain("test space.com"),
-            ValidationResult::InvalidChars
-        );
-        assert_eq!(
-            plugin.validate_domain("test@domain.com"),
-            ValidationResult::InvalidChars
-        );
-        assert_eq!(
-            plugin.validate_domain("-test.com"),
-            ValidationResult::InvalidChars
-        );
-        assert_eq!(
-            plugin.validate_domain("test-.com"),
-            ValidationResult::InvalidChars
-        );
+        assert_eq!(plugin.validate_domain("test space.com"), invalid_chars());
+        assert_eq!(plugin.validate_domain("test@domain.com"), invalid_chars());
+        assert_eq!(plugin.validate_domain("-test.com"), invalid_chars());
+        assert_eq!(plugin.validate_domain("test-.com"), invalid_chars());
     }
 
     #[tokio::test]
@@ -371,15 +318,9 @@ mod tests {
     async fn test_invalid_length() {
         let plugin = DomainValidatorPlugin::default();
         let long_label = "a".repeat(64) + ".com";
-        assert_eq!(
-            plugin.validate_domain(&long_label),
-            ValidationResult::InvalidLength
-        );
+        assert_eq!(plugin.validate_domain(&long_label), invalid_length());
         let long_domain = "a.".repeat(126) + "com";
-        assert_eq!(
-            plugin.validate_domain(&long_domain),
-            ValidationResult::InvalidLength
-        );
+        assert_eq!(plugin.validate_domain(&long_domain), invalid_length());
     }
 
     #[tokio::test]
@@ -387,7 +328,7 @@ mod tests {
         let strict_plugin = DomainValidatorPlugin::new(true, 1000);
         assert_eq!(
             strict_plugin.validate_domain("te--st.com"),
-            ValidationResult::InvalidFormat
+            invalid_format()
         );
 
         let lenient_plugin = DomainValidatorPlugin::new(false, 1000);
@@ -397,10 +338,7 @@ mod tests {
         );
     }
 
-    /// Punycode "A-labels" (RFC 5890) encode internationalized domain names
-    /// and legitimately contain "--" after the "xn-" prefix. Strict mode must
-    /// not reject them; otherwise all IDN queries (such as Chinese/Arabic domains)
-    /// would be refused under the default configuration.
+    // Punycode A-labels (RFC 5890) legitimately contain "--" after "xn-".
     #[tokio::test]
     async fn test_strict_mode_allows_punycode_labels() {
         let strict_plugin = DomainValidatorPlugin::new(true, 1000);
@@ -408,15 +346,13 @@ mod tests {
             strict_plugin.validate_domain("xn--fsq.com"),
             ValidationResult::Valid
         );
-        // Mixed case prefix is also valid.
         assert_eq!(
             strict_plugin.validate_domain("XN--FSQ.com"),
             ValidationResult::Valid
         );
-        // Non-punycode labels with "--" are still rejected.
         assert_eq!(
             strict_plugin.validate_domain("te--st.com"),
-            ValidationResult::InvalidFormat
+            invalid_format()
         );
     }
 
@@ -426,17 +362,14 @@ mod tests {
 
         let plugin = DomainValidatorPlugin::new(true, 10);
 
-        // Create a test request
         let mut request = Message::new();
         request.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
         let mut ctx = Context::new(request);
 
-        // First execution
         let result = plugin.execute(&mut ctx).await;
         assert!(result.is_ok());
-        assert!(ctx.response().is_none()); // Valid domain, no response set
+        assert!(ctx.response().is_none());
 
-        // Check cache
         {
             let cache = plugin.cache.write().await;
             assert!(cache.contains("example.com"));
@@ -446,53 +379,31 @@ mod tests {
     #[tokio::test]
     async fn test_consecutive_dots() {
         let plugin = DomainValidatorPlugin::default();
-        // Consecutive dots result in empty labels
-        assert_eq!(
-            plugin.validate_domain("example..com"),
-            ValidationResult::InvalidLength
-        );
+        assert_eq!(plugin.validate_domain("example..com"), invalid_length());
         assert_eq!(
             plugin.validate_domain("sub..domain.example.com"),
-            ValidationResult::InvalidLength
+            invalid_length()
         );
-        assert_eq!(
-            plugin.validate_domain("..."),
-            ValidationResult::InvalidLength
-        );
+        assert_eq!(plugin.validate_domain("..."), invalid_length());
     }
 
     #[tokio::test]
     async fn test_domains_starting_with_dot() {
         let plugin = DomainValidatorPlugin::default();
-        // Domains starting with dot have empty first label (except root ".")
-        assert_eq!(
-            plugin.validate_domain(".example.com"),
-            ValidationResult::InvalidLength
-        );
-        assert_eq!(
-            plugin.validate_domain(".com"),
-            ValidationResult::InvalidLength
-        );
+        assert_eq!(plugin.validate_domain(".example.com"), invalid_length());
+        assert_eq!(plugin.validate_domain(".com"), invalid_length());
     }
 
     #[tokio::test]
     async fn test_domains_ending_with_dot() {
         let plugin = DomainValidatorPlugin::default();
-        // Domains ending with dot have empty last label
-        assert_eq!(
-            plugin.validate_domain("example.com."),
-            ValidationResult::InvalidLength
-        );
-        assert_eq!(
-            plugin.validate_domain("localhost."),
-            ValidationResult::InvalidLength
-        );
+        assert_eq!(plugin.validate_domain("example.com."), invalid_length());
+        assert_eq!(plugin.validate_domain("localhost."), invalid_length());
     }
 
     #[tokio::test]
     async fn test_empty_string() {
         let plugin = DomainValidatorPlugin::default();
-        // Empty string should be invalid
-        assert_eq!(plugin.validate_domain(""), ValidationResult::InvalidLength);
+        assert_eq!(plugin.validate_domain(""), invalid_length());
     }
 }

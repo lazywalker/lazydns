@@ -93,25 +93,8 @@ pub trait Plugin: Send + Sync + Debug + Any + 'static {
         self.tag().unwrap_or(self.name())
     }
 
-    /// Check if this plugin should execute
-    ///
-    /// Plugins can override this to provide conditional execution logic.
-    /// By default, plugins always execute.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - The execution context
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if the plugin should execute, `false` otherwise.
-    fn should_execute(&self, _ctx: &Context) -> bool {
-        true
-    }
-
     /// Get the plugin as Any for downcasting
     fn as_any(&self) -> &dyn Any {
-        // This is a default implementation that won't work for downcasting
         // Concrete implementations should override this
         &()
     }
@@ -299,7 +282,6 @@ mod tests {
 
         let request = Message::new();
         let mut ctx = Context::new(request);
-        assert!(plugin.should_execute(&ctx));
         assert!(plugin.execute(&mut ctx).await.is_ok());
     }
 }

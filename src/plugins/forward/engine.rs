@@ -57,6 +57,36 @@ impl Forward {
         self
     }
 
+    /// Record a query outcome (success or failure) on the upstream's health
+    /// stats and metrics. No-op when health checks are disabled.
+    pub(crate) fn record_outcome(&self, upstream: &Upstream, elapsed: Duration, success: bool) {
+        if !self.health_checks_enabled {
+            return;
+        }
+        if success {
+            upstream.health.record_success(elapsed);
+            #[cfg(feature = "metrics")]
+            {
+                use crate::metrics::{UPSTREAM_DURATION_SECONDS, UPSTREAM_QUERIES_TOTAL};
+                UPSTREAM_QUERIES_TOTAL
+                    .with_label_values(&[upstream.addr.as_str(), "success"])
+                    .inc();
+                UPSTREAM_DURATION_SECONDS
+                    .with_label_values(&[upstream.addr.as_str()])
+                    .observe(elapsed.as_secs_f64());
+            }
+        } else {
+            upstream.health.record_failure();
+            #[cfg(feature = "metrics")]
+            {
+                use crate::metrics::UPSTREAM_QUERIES_TOTAL;
+                UPSTREAM_QUERIES_TOTAL
+                    .with_label_values(&[upstream.addr.as_str(), "error"])
+                    .inc();
+            }
+        }
+    }
+
     /// Select upstream index by strategy.
     /// Fastest picks the upstream with lowest measured avg response time.
     pub(crate) fn select_upstream(&self, current_idx: usize) -> Option<usize> {

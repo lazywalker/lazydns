@@ -9,11 +9,14 @@
 
 ## Args
 
-- `ttl` (integer): fixed TTL. Alternative to quick-setup.
+- `ttl` (integer): fixed TTL. Overrides `min`/`max` when non-zero.
+- `min` (integer): minimum TTL; raises TTLs below this value.
+- `max` (integer): maximum TTL; lowers TTLs above this value.
+- If all three are omitted, defaults to a fixed TTL of 300.
 
 ## Behavior
 
-- If `fix` is set (non-zero), all record TTLs are replaced with that value.
+- If `ttl` is set (non-zero), all record TTLs are replaced with that value.
 - Otherwise `min` / `max` are applied to clamp existing TTLs.
 
 ## When to use

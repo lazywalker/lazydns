@@ -68,31 +68,7 @@ impl ForwardPlugin {
     }
 
     fn record_upstream_health(&self, upstream: &Upstream, elapsed: Duration, success: bool) {
-        if !self.core.health_checks_enabled {
-            return;
-        }
-        if success {
-            upstream.health.record_success(elapsed);
-            #[cfg(feature = "metrics")]
-            {
-                use crate::metrics::{UPSTREAM_DURATION_SECONDS, UPSTREAM_QUERIES_TOTAL};
-                UPSTREAM_QUERIES_TOTAL
-                    .with_label_values(&[upstream.addr.as_str(), "success"])
-                    .inc();
-                UPSTREAM_DURATION_SECONDS
-                    .with_label_values(&[upstream.addr.as_str()])
-                    .observe(elapsed.as_secs_f64());
-            }
-        } else {
-            upstream.health.record_failure();
-            #[cfg(feature = "metrics")]
-            {
-                use crate::metrics::UPSTREAM_QUERIES_TOTAL;
-                UPSTREAM_QUERIES_TOTAL
-                    .with_label_values(&[upstream.addr.as_str(), "error"])
-                    .inc();
-            }
-        }
+        self.core.record_outcome(upstream, elapsed, success);
     }
 
     fn extract_answer_addresses(response: &Message) -> Vec<String> {
@@ -161,40 +137,9 @@ impl ForwardPlugin {
                 let upstream = &core.upstreams[idx];
                 let start = std::time::Instant::now();
 
-                match core.forward_query(&req, upstream).await {
-                    Ok(response) => {
-                        let elapsed = start.elapsed();
-                        if core.health_checks_enabled {
-                            upstream.health.record_success(elapsed);
-                            #[cfg(feature = "metrics")]
-                            {
-                                use crate::metrics::{
-                                    UPSTREAM_DURATION_SECONDS, UPSTREAM_QUERIES_TOTAL,
-                                };
-                                UPSTREAM_QUERIES_TOTAL
-                                    .with_label_values(&[upstream.addr.as_str(), "success"])
-                                    .inc();
-                                UPSTREAM_DURATION_SECONDS
-                                    .with_label_values(&[upstream.addr.as_str()])
-                                    .observe(elapsed.as_secs_f64());
-                            }
-                        }
-                        Ok(response)
-                    }
-                    Err(e) => {
-                        if core.health_checks_enabled {
-                            upstream.health.record_failure();
-                            #[cfg(feature = "metrics")]
-                            {
-                                use crate::metrics::UPSTREAM_QUERIES_TOTAL;
-                                UPSTREAM_QUERIES_TOTAL
-                                    .with_label_values(&[upstream.addr.as_str(), "error"])
-                                    .inc();
-                            }
-                        }
-                        Err(e)
-                    }
-                }
+                let result = core.forward_query(&req, upstream).await;
+                core.record_outcome(upstream, start.elapsed(), result.is_ok());
+                result
             });
         }
 

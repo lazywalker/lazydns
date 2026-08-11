@@ -270,11 +270,6 @@ impl Plugin for CronPlugin {
         "cron"
     }
 
-    /// Cron plugin does not execute per DNS request
-    fn should_execute(&self, _ctx: &Context) -> bool {
-        false
-    }
-
     fn init(config: &PluginConfig) -> Result<std::sync::Arc<dyn Plugin>> {
         let plugin = CronPlugin::new();
 

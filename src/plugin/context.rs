@@ -89,6 +89,16 @@ impl Context {
         self.response = response;
     }
 
+    /// Set a REFUSED response that echoes the request's id and question section.
+    pub fn set_refused(&mut self) {
+        let mut response = Message::new();
+        response.set_id(self.request().id());
+        response.set_response(true);
+        response.set_response_code(crate::dns::ResponseCode::Refused);
+        *response.questions_mut() = self.request().questions().to_vec();
+        self.set_response(Some(response));
+    }
+
     /// Take the DNS response, leaving None in its place. Attempts to avoid cloning
     /// when the Arc is uniquely owned; otherwise returns a cloned Message.
     pub fn take_response(&mut self) -> Option<Message> {

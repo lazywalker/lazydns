@@ -2,7 +2,24 @@
 
 This file contains high-level release notes and migration guidance.
 
-## Unreleased (v0.3.20)
+## Unreleased
+
+**Config / plugins**
+
+- fix(ttl): config validation checked the `fix` key but the plugin reads `ttl`; out-of-range `ttl:` values were silently accepted
+- fix(redirect): `rules` with more than one entry silently kept only the first; now all rules apply, first match wins
+
+**Refactor**
+
+- dedup background-task spawn logic (cache, ratelimit, reverse_lookup)
+- collapse ttl/cache record loops via `Message::records_mut()`
+- dedup forward health/metrics recording via `Forward::record_outcome`
+- collapse domain_validator validation result variants
+- dedup REFUSED response construction via `Context::set_refused`
+- remove dead `should_execute` plugin hook
+- merge duplicate `MemoryMetricsConfig` struct
+
+## Release v0.3.20
 
 **Cache**
 

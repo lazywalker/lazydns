@@ -5,6 +5,7 @@
 ## Args / Rules
 
 - Provide a `rules` array in config. Each rule can be a string `"from to"` or a mapping with `from` and `to` keys.
+- Rules are checked in order; the first match wins.
 
 Example:
 
@@ -14,6 +15,8 @@ plugins:
     args:
       rules:
         - "example.com example.net"
+        - from: "*.old.com"
+          to: "*.new.com"
 ```
 
 ## Behavior

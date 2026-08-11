@@ -257,6 +257,22 @@ impl Message {
         self.questions.len()
     }
 
+    /// Iterate mutably over all resource records (answers, authority, additional).
+    pub fn records_mut(&mut self) -> impl Iterator<Item = &mut ResourceRecord> {
+        self.answers
+            .iter_mut()
+            .chain(self.authority.iter_mut())
+            .chain(self.additional.iter_mut())
+    }
+
+    /// Iterate over all resource records (answers, authority, additional).
+    pub fn records(&self) -> impl Iterator<Item = &ResourceRecord> {
+        self.answers
+            .iter()
+            .chain(self.authority.iter())
+            .chain(self.additional.iter())
+    }
+
     /// Get the count of answer records
     pub fn answer_count(&self) -> usize {
         self.answers.len()

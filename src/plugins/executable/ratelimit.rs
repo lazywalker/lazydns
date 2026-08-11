@@ -3,7 +3,6 @@
 //! Implements rate limiting to prevent DoS attacks and resource exhaustion.
 
 use crate::config::PluginConfig;
-use crate::dns::ResponseCode;
 use crate::plugin::{BackgroundTask, Context, Plugin, RETURN_FLAG};
 use crate::{RegisterPlugin, Result};
 use async_trait::async_trait;
@@ -112,35 +111,6 @@ impl RateLimitPlugin {
         self.limits
             .retain(|_, entry| now.duration_since(entry.window_start) < window_duration * 2);
     }
-
-    /// Spawn a background cleanup task that periodically removes expired entries
-    ///
-    /// This prevents the DashMap from growing unboundedly when there are many
-    /// unique client IPs. The cleanup runs every `window_secs * 2` seconds.
-    ///
-    /// # Returns
-    ///
-    /// A JoinHandle that can be used to abort the cleanup task if needed.
-    pub fn spawn_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let cleanup_interval = Duration::from_secs(self.window_secs.max(30) * 2);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(cleanup_interval);
-            loop {
-                interval.tick().await;
-                let before = self.limits.len();
-                self.cleanup();
-                let after = self.limits.len();
-                if before > after {
-                    debug!(
-                        "RateLimitPlugin cleanup: removed {} entries ({} -> {})",
-                        before - after,
-                        before,
-                        after
-                    );
-                }
-            }
-        })
-    }
 }
 
 impl BackgroundTask for RateLimitPlugin {
@@ -193,17 +163,8 @@ impl Plugin for RateLimitPlugin {
                 )
                 .await;
 
-            // Create a REFUSED response. Echo the request's question section and
-            // id so the client gets a well-formed reply, and set RETURN_FLAG so
-            // downstream plugins (ttl/forward/...) cannot overwrite the refusal.
-            let mut response = crate::dns::Message::new();
-            response.set_id(ctx.request().id());
-            response.set_response(true);
-            response.set_response_code(ResponseCode::Refused);
-            let request_questions = ctx.request().questions().to_vec();
-            *response.questions_mut() = request_questions;
-
-            ctx.set_response(Some(response));
+            // RETURN_FLAG stops downstream plugins from overwriting the refusal.
+            ctx.set_refused();
             ctx.set_metadata(RETURN_FLAG, true);
         }
 
@@ -374,7 +335,7 @@ mod tests {
         assert!(ctx.response().is_some());
         assert_eq!(
             ctx.response().unwrap().response_code(),
-            ResponseCode::Refused
+            crate::dns::ResponseCode::Refused
         );
     }
 }
