@@ -14,6 +14,10 @@ This file contains high-level release notes and migration guidance.
 - dedup background-task spawn logic (cache, ratelimit, reverse_lookup)
 - collapse ttl/cache record loops via `Message::records_mut()`
 - dedup forward health/metrics recording via `Forward::record_outcome`
+- collapse domain_validator validation result variants
+- dedup REFUSED response construction via `Context::set_refused`
+- remove dead `should_execute` plugin hook
+- merge duplicate `MemoryMetricsConfig` struct
 
 ## Release v0.3.20
 

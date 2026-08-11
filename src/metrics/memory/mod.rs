@@ -99,68 +99,14 @@ pub static PROCESS_CGROUP_MEMORY_LIMIT_BYTES: Lazy<IntGauge> = Lazy::new(|| {
     gauge
 });
 
-/// Configuration for memory metrics collection
-#[derive(Debug, Clone, Copy)]
-pub struct MemoryMetricsConfig {
-    /// Whether memory metrics collection is enabled
-    pub enabled: bool,
-    /// Sampling interval in milliseconds
-    pub interval_ms: u64,
-}
-
-impl Default for MemoryMetricsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            interval_ms: 5000, // 5 seconds
-        }
-    }
-}
-
-impl MemoryMetricsConfig {
-    /// Create a new configuration with custom interval
-    pub fn with_interval(mut self, interval_ms: u64) -> Self {
-        self.interval_ms = interval_ms;
-        self
-    }
-
-    /// Enable or disable metrics collection
-    pub fn with_enabled(mut self, enabled: bool) -> Self {
-        self.enabled = enabled;
-        self
-    }
-}
-
 /// Start memory metrics collection task
 ///
 /// Spawns a background tokio task that periodically samples process memory
 /// and updates Prometheus metrics. Prioritizes cgroup metrics when available
 /// (container environments) and falls back to /proc metrics.
-///
-/// # Arguments
-///
-/// * `config` - Configuration for sampling interval and enable flag
-///
-/// # Returns
-///
-/// A JoinHandle that can be used to await task completion (runs until cancelled)
-///
-/// # Example
-///
-/// ```no_run
-/// # use lazydns::metrics::memory::{MemoryMetricsConfig, start_memory_metrics_collector};
-/// # #[tokio::main]
-/// # async fn main() {
-/// let config = MemoryMetricsConfig::default();
-/// let handle = start_memory_metrics_collector(config);
-///
-/// // ... run application ...
-///
-/// // Optionally cancel the task
-/// handle.abort();
-/// # }
-/// ```
-pub fn start_memory_metrics_collector(config: MemoryMetricsConfig) -> tokio::task::JoinHandle<()> {
+pub fn start_memory_metrics_collector(
+    config: crate::config::MemoryMetricsConfig,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         if !config.enabled {
             debug!("Memory metrics collection is disabled");
@@ -243,17 +189,17 @@ mod tests {
 
     #[test]
     fn test_memory_metrics_config_default() {
-        let config = MemoryMetricsConfig::default();
+        let config = crate::config::MemoryMetricsConfig::default();
         assert!(config.enabled);
         assert_eq!(config.interval_ms, 5000);
     }
 
     #[test]
-    fn test_memory_metrics_config_builder() {
-        let config = MemoryMetricsConfig::default()
-            .with_interval(10000)
-            .with_enabled(false);
-
+    fn test_memory_metrics_config_disabled() {
+        let config = crate::config::MemoryMetricsConfig {
+            enabled: false,
+            interval_ms: 10000,
+        };
         assert!(!config.enabled);
         assert_eq!(config.interval_ms, 10000);
     }
@@ -298,7 +244,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_start_memory_metrics_collector_disabled() {
-        let config = MemoryMetricsConfig::default().with_enabled(false);
+        let config = crate::config::MemoryMetricsConfig {
+            enabled: false,
+            interval_ms: 5000,
+        };
         let handle = start_memory_metrics_collector(config);
 
         // Give it a moment to complete
@@ -311,9 +260,10 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn test_start_memory_metrics_collector_enabled() {
-        let config = MemoryMetricsConfig::default()
-            .with_interval(100)
-            .with_enabled(true);
+        let config = crate::config::MemoryMetricsConfig {
+            enabled: true,
+            interval_ms: 100,
+        };
 
         let handle = start_memory_metrics_collector(config);
 

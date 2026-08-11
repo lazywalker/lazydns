@@ -824,11 +824,7 @@ impl ServerLauncher {
                 "Starting memory metrics collector (interval: {}ms)",
                 mem_cfg.interval_ms
             );
-            let mem_config = crate::metrics::memory::MemoryMetricsConfig {
-                enabled: mem_cfg.enabled,
-                interval_ms: mem_cfg.interval_ms,
-            };
-            let _memory_handle = crate::metrics::memory::start_memory_metrics_collector(mem_config);
+            let _memory_handle = crate::metrics::memory::start_memory_metrics_collector(mem_cfg);
             // dropped here; the collector task keeps running in the background
         }
 
