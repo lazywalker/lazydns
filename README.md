@@ -17,7 +17,6 @@
 - **[Docs Home](docs/README.md)** - Main documentation index
 - **[Installation Guide](docs/en/03_INSTALLATION.md)** - Installation methods
 - **[Configuration Guide](docs/en/04_CONFIGURATION.md)** - Configuration file reference
-- **[Implementation](docs/IMPLEMENTATION.md)** - Phased implementation roadmap
 
 ## Current Status:
 

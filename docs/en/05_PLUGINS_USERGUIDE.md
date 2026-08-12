@@ -1,7 +1,7 @@
 # Plugins Guide (User)
 
 ## Plugin System Overview
-Explain plugin execution flow, priorities, and common plugin types:
+Explain plugin execution flow and common plugin types:
 - `query` plugins (manipulate DNS queries/responses)
 - `exec` plugins (side-effecting tasks)
 - `flow` plugins (control flow)
@@ -82,6 +82,15 @@ Short pages or subsections for major plugins with purpose & example config:
   * [`ros_addrlist`](05_08_18_PLUGIN_ROS_ADDRLIST.md): RouterOS address list helper and notifier
   * [`sleep`](05_08_19_PLUGIN_SLEEP.md): pause execution for a duration
   * [`ttl`](05_08_20_PLUGIN_TTL.md): fix or clamp TTL values on responses
+- [`domain_validator`](05_09_PLUGIN_DOMAIN_VALIDATOR.md): reject malformed domain names early
+- Flow control plugins (used inside sequences):
+  * [`goto`](05_09_01_PLUGIN_GOTO.md): jump to a target sequence, replacing current execution
+  * [`jump`](05_09_02_PLUGIN_JUMP.md): jump to a target sequence, then return and continue
+  * [`accept`](05_09_03_PLUGIN_ACCEPT.md): stop and accept the current response
+  * [`reject`](05_09_04_PLUGIN_REJECT.md): reject the query with REFUSED
+  * [`return`](05_09_05_PLUGIN_RETURN.md): return from the current jump frame
+  * [`prefer_ipv4`](05_09_06_PLUGIN_PREFER_IPV4.md): keep only IPv4 answers
+  * [`prefer_ipv6`](05_09_07_PLUGIN_PREFER_IPV6.md): keep only IPv6 answers
 
 
 
@@ -90,13 +99,10 @@ Short pages or subsections for major plugins with purpose & example config:
 plugins:
   - tag: cache
     type: cache
-    config:
-      min_ttl: 30
+    args:
+      size: 10240
 ```
 
-## Ordering & Priority
-How priorities and plugin lists affect execution.
+## Ordering
 
----
-
-TODO: Link each built-in plugin to deeper docs pages.
+There is no priority system. Execution order is determined entirely by the `sequence` plugin: steps run top to bottom, and `jump` / `goto` can redirect flow to other sequences.

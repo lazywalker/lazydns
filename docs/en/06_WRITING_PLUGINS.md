@@ -126,8 +126,6 @@ The project now prefers using derive macros to register plugin factories automat
 - The macro submits the factory into the `linkme` distributed slice; the runtime can then discover it with `crate::plugin::factory::get_plugin_factory("type_name")`.
 - For exec-style plugins, use `#[derive(RegisterExecPlugin)]` which behaves the same but registers into the exec-factory slice.
 
-Note: The old `crate::register_plugin_builder!(Type)` macro is still available for backward compatibility but is deprecated; prefer `#[derive(RegisterPlugin)]` for new code.
-
 ## Plugin Lifecycle
 - `init`, `exec`, `shutdown`
 - Thread-safety and concurrency patterns

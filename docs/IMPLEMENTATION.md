@@ -1,107 +1,148 @@
 # Implementation status vs upstream mosdns
 
-This document summarizes the current implementation status of the Rust `lazydns` project against the upstream `mosdns` feature list (see `upstream-features.md`). It lists implemented features, partial implementations, and known gaps. Paths reference current source files where applicable.
+Compares lazydns (Rust) against the upstream mosdns feature list (see `UPSTREAM_FEATURES.md`).
 
 ## Summary
 
-- Overall status: large portion of core features and many plugins implemented in Rust with the goal of parity.
-- Focus so far: plugin architecture, forward/cache/hosts, control-flow plugins, and executable plugins including `reverse_lookup`, `ipset`, and `nftset`.
+Core DNS functionality, plugin system, all five transports, cache with persistence and lazy refresh, and a WebUI dashboard are implemented. Gaps are in native netlink integration and some upstream plugin parity.
 
-## 1. Core DNS functionality
+## 1. Core DNS
 
-- DNS parsing & serialization: Implemented. See `src/dns/*` (message, wire, record, rdata, types).
-- Supported record types: implemented for the common set (A, AAAA, CNAME, MX, NS, PTR, SOA, TXT, SRV). SVCB/HTTPS and CAA are present in `RecordType` definitions (`src/dns/types.rs`).
+Wire-format parse/serialize is built on `hickory-proto` 0.24. See `src/dns/`:
 
-Status: IMPLEMENTED (core parsing and record support).
+- `message.rs` - DNS message (header + 4 sections); `records()` / `records_mut()` iterate all RRs; DNSSEC bits (AD, CD)
+- `question.rs` - Question struct (qname, qtype, qclass)
+- `record.rs` - ResourceRecord (name, type, class, ttl, rdata)
+- `rdata.rs` - RData enum (A, AAAA, CNAME, NS, PTR, MX, TXT, SOA, SRV, OPT, CAA, DS, RRSIG, NSEC, DNSKEY, etc.)
+- `types.rs` - RecordType, RecordClass, OpCode, ResponseCode
+- `wire.rs` - parse_message / serialize_message
 
-## 2. Transport & server features
+Record types: A, AAAA, CNAME, MX, NS, PTR, SOA, TXT, SRV fully supported. OPT (EDNS0), DS, RRSIG, NSEC, DNSKEY, SVCB, HTTPS, CAA defined in the enum.
 
-- UDP and TCP servers: Implemented (`src/server/udp.rs`, `src/server/tcp.rs`).
-- DoT (DNS over TLS): Implemented (`src/server/dot.rs`, `src/server/tls.rs`).
-- DoH (DNS over HTTPS): Implemented (`src/server/doh.rs`).
-- DoQ (DNS over QUIC): implemented (`src/server/doq.rs`).
-- Multi-listen, concurrency, connection handling: Implemented via `tokio`-based servers (`src/server/*`).
+Status: IMPLEMENTED.
 
-Status: PARTIAL: UDP/TCP/DoH/DoT/DoQ present, not all features.
+## 2. Transports and servers
+
+All five transports via the `Server` trait (`src/server/mod.rs`):
+
+| Transport | File | Feature |
+|-----------|------|---------|
+| UDP | `udp.rs` | always |
+| TCP | `tcp.rs` | always |
+| DoT | `dot.rs` | `dot` |
+| DoH | `doh.rs` | `doh` |
+| DoQ | `doq.rs` | `doq` |
+| Admin API | `admin.rs` | `admin` |
+| Monitoring | `monitoring.rs` | `metrics` |
+
+`ServerLauncher` (`launcher.rs`) spawns servers from plugin config. A shared `spawn_server` helper handles the oneshot + spawn + error-log pattern for all transport types.
+
+`RequestHandler` trait and `DefaultHandler` (`handler.rs`) wire requests to the plugin entry point, with `RequestContext` carrying client IP and protocol.
+
+Status: IMPLEMENTED.
 
 ## 3. Plugin system
 
-- Plugin architecture: Implemented (`src/plugin/*`, `src/plugins/mod.rs`).
-- Execution flow, context, and conditional execution: Implemented (`src/plugin/context.rs`, `src/plugins/advanced.rs`, `src/plugin/builder.rs`).
+Core traits in `src/plugin/`:
 
-### Core plugin coverage (select)
+- `traits.rs` - `Plugin` (execute, init, aliases, as_any, as_shutdown, spawn_background_task), `ExecPlugin` (quick_setup), `Shutdown`, `BackgroundTask`, `Matcher`
+- `context.rs` - `Context` holds request/response Messages and typed metadata; `set_refused()` builds a REFUSED response echoing the request
+- `builder.rs` - `PluginBuilder` resolves `$tag` references and builds plugin instances from `PluginConfig`
+- `factory.rs` - auto-registration via `#[derive(RegisterPlugin)]` + `linkme::distributed_slice`
+- `registry.rs` - runtime lookup by name/tag
+- `condition/` - condition builders (qname, qname_neg, qtype, qclass, rcode, has_cname, has_resp, resp_ip, resp_ip_neg)
 
-- `forward`: Implemented (`src/plugins/forward.rs`); supports multiple upstreams and concurrent queries. Transport feature parity (DoH/DoT/DoQ upstream) is partial on transport side.
-- `cache`: Implemented (`src/plugins/cache/mod.rs`). - TODO: `lazy_cache_ttl`
-- `hosts`: Implemented (`src/plugins/hosts.rs`). Parser supports both ip-first and hostname-first lines, multiple IPs per line, and mixed ordering across files; unit tests verify A/AAAA behavior and hostname-first parsing.
-- `domain_set` / `geosite`: Implemented (`src/plugins/domain_matcher.rs`, `src/plugins/geosite.rs`).
-- `ip_set` / IP matching: Implemented (`src/plugins/ip_matcher.rs`, `src/plugins/data_provider.rs`).
-- `geoip`: Implemented (`src/plugins/geoip.rs`); GeoIP integration present; check for data loader details.
+`PluginHandler` (`mod.rs`) runs the entry plugin, handles control-flow metadata (`goto_label`, `jump_target`, `RETURN_FLAG`), and does post-processing: cache store, reverse-lookup IP save, and audit query logging.
 
-### Executable & control plugins
+Status: IMPLEMENTED.
 
-- `sequence`, `parallel`, `if`, `goto`, `return`, `drop_resp`: Implemented (`src/plugins/advanced.rs`, `src/plugins/control_flow.rs`).
-- `ttl`: Implemented (`src/plugins/executable/ttl.rs`).
-- `query_summary`: Implemented (`src/plugins/executable/query_summary.rs`).
-- `reverse_lookup`: Implemented with in-memory cache and save hook (`src/plugins/executable/reverse_lookup.rs`). Integration: `PluginHandler` calls `save_ips_after` after response population.
-- `arbitrary`, `black_hole`, `drop_resp`: Implemented in `src/plugins/executable/*.rs`.
+## 4. Plugins
 
-### ipset / nftset integration
+### Server-facing
 
-- `ipset`: Implemented (`src/plugins/executable/ipset.rs`). Behavior:
+| Plugin | Path | Notes |
+|--------|------|-------|
+| `forward` | `forward/{mod,engine,builder,types}.rs` | UDP multiplexing (qid demux), DoH (reqwest), concurrent racing, health tracking, load balancing (round-robin/random/fastest) |
+| `cache` | `cache/{mod,entry,persistence,stats}.rs` | LRU + LazyCache (pre-expiry background refresh) + stale-serving + binary persistence (`dump_file`/`dump_interval`); cache key includes DNSSEC flags (DO/AD/CD) |
+| `hosts` | `dataset/hosts.rs` | HashMap O(1), multiple IPs/domain, file-watch auto-reload |
+| `acl` | `acl.rs` | IP-based allow/deny |
+| `geoip` | `geoip.rs` | Country-code matching |
+| `geosite` | `geosite.rs` | Category/domain matching |
+| `domain_validator` | `domain_validator.rs` | RFC 1035/1123 name validation, rejects malformed queries early |
+| `rate_limit` | `executable/ratelimit.rs` | Per-IP token-bucket / window limiting |
+| `redirect` | `executable/redirect.rs` | Query name rewriting (wildcard, multi-rule, first-match-wins) |
+| `ecs` | `executable/ecs.rs` | EDNS Client Subnet |
+| `cron` | `cron.rs` | Scheduled tasks (`cronexpr`); drives downloader |
 
-  - Computes CIDR prefixes from A/AAAA answers.
-  - QuickSetup parser present.
-  - On Linux, invokes system `ipset` binary via `std::process::Command` (guarded with `cfg(target_os = "linux")`).
-  - On other platforms records metadata (`ipset_added`) for tests/visibility.
+### Executable (inline `exec:` in sequences)
 
-- `nftset`: Implemented (`src/plugins/executable/nftset.rs`). Behavior mirrors `ipset`:
-  - Computes prefixes, QuickSetup parser.
-  - On Linux uses `nft` binary; otherwise records metadata (`nftset_added_v4`, `nftset_added_v6`).
+`ttl`, `black_hole`, `arbitrary`, `query_summary`, `debug_print`, `drop_resp`, `sleep`, `dual_selector`, `edns0opt`, `mark`, `reverse_lookup`, `downloader`, `collector` (Prometheus variant under `metrics` feature).
 
-Status: IMPLEMENTED (CLI-based integration). Note: upstream native netlink integration is not used; a native implementation could be added later.
+All in `src/plugins/executable/`.
 
-## 4. Configuration system
+### Datasets
 
-- YAML config loader and validation: Implemented (`src/config/*`) with `PluginBuilder` and `PluginConfig` parsing. Example configs included in `examples/etc/config.yaml`.
-- Hot reload: partial; `ConfigReloader` exists, verify runtime hot-reload semantics for production.
+`domain_set` (full/domain/regexp/keyword match types), `ip_set` (CIDR), `arbitrary`. All in `src/plugins/dataset/`.
 
-Status: PARTIAL: YAML loading and validation implemented; hot-reload present as a reloader component.
+### Flow control
 
-## 5. Advanced features
+`sequence`, `goto`, `jump`, `accept`, `reject`, `return`, `prefer_ipv4`, `prefer_ipv6`. In `src/plugins/executable/sequence.rs` and `src/plugins/flow/`.
 
-- Performance: designed for async `tokio` concurrency; memory pools and advanced tuning are incremental work (some pool utilities exist in project).
-- Observability: metrics and monitoring modules exist (`src/server/monitoring.rs`, `src/metrics` planned). Prometheus-style exposure may be partial.
-- Security: TLS support for DoT/DoH implemented. Certificate handling present in `src/server/tls.rs`.
+### Linux integration
 
-Status: PARTIAL: basic observability and TLS present; more integrations possible.
+`ipset` (`executable/ipset.rs`) and `nftset` (`executable/nftset.rs`) compute CIDR prefixes from A/AAAA answers and invoke `ipset` / `nft` binaries on Linux; record metadata on other platforms.
 
-## 6. Deployment & management
+Status: IMPLEMENTED (CLI-based, not native netlink).
 
-- Standalone binary and Docker artifacts: project includes `Dockerfile` and `docker-compose.yml` in workspace root.
-- CLI flags and signal handling: implemented in `src/main.rs` (config path, working dir, log level, graceful shutdown via ctrl-c).
+## 5. Cache subsystem
 
-Status: IMPLEMENTED (basic deployment support present).
+- LRU eviction with periodic cleanup (60s interval, 0.8 pressure threshold)
+- LazyCache: proactively refreshes entries when remaining TTL drops below 5%
+- Stale-serving via `cache_ttl`: serves stale at TTL=0 while refreshing
+- Negative caching with configurable `negative_ttl`
+- Persistence: binary dump (`LZDNSCv1` format, atomic temp+rename) to `dump_file` every N changes; loaded on startup and on shutdown
 
-## 7. Testing coverage
+Status: IMPLEMENTED.
 
-- Unit tests: extensive unit tests across DNS, plugin, and executable modules (run via `cargo test`).
-- Integration tests: added integration tests for the reverse-lookup save hook and ipset/nftset metadata behavior under `tests/`.
+## 6. Audit and WebUI
 
-Status: IMPLEMENTED: good test coverage; integration tests added for key behaviors.
+Audit is part of the `web` feature (no standalone plugin). When enabled:
 
-## Gaps and recommended next steps
+- `PluginHandler` auto-logs every query via `log_query_for_context`
+- Plugins emit security events (ACL deny, rate-limit, malformed query) via `AUDIT_LOGGER`
+- Event bus (`audit/event_bus.rs`) fans out to SSE stream and alert engine
+- WebUI (`src/web/`): real-time dashboard, audit SSE stream, config viewer, admin ops, WebSocket metrics
 
-1. DoQ (DNS over QUIC): implement DoQ server and transport support to match upstream feature set.
-2. Replace CLI-based ipset/nft manipulation with native netlink integration (via a Rust netlink crate) for more robust system integration and error handling.
-3. Expand documentation per-plugin (config examples and QuickSetup documentation) and add README snippets linking `examples/etc/config.yaml` to plugin behaviors.
-4. Add further integration tests for multi-plugin sequences (such as forward->ipset->ros_addrlist flow) and permissioned system behaviors.
-5. Verify Prometheus metrics coverage and add exporter where missing.
+Status: IMPLEMENTED (feature `web`).
 
-## File references (key files)
+## 7. Metrics
 
-- Core DNS: `src/dns/*` (types.rs, message.rs, record.rs, wire.rs)
-- Server: `src/server/*` (`udp.rs`, `tcp.rs`, `doh.rs`, `dot.rs`)
-- Plugin system: `src/plugin/*`, `src/plugins/*`
-- Executable plugins: `src/plugins/executable/*` (includes `ipset.rs`, `nftset.rs`, `reverse_lookup.rs`, `ttl.rs`, `query_summary.rs`)
-- Config and examples: `src/config/*`, `examples/etc/config.yaml`
+Prometheus gauges/counters in `src/metrics/mod.rs` (cache hits/misses, DNS queries, upstream stats, domain validation). Process memory metrics (RSS/VMS/cgroup) in `src/metrics/memory/`. Exposed via monitoring server (feature `metrics`).
+
+Status: IMPLEMENTED.
+
+## 8. Configuration
+
+YAML config with serde, env var substitution, `!include`, and hot-reload via file watcher (`config/reload.rs`). Validation in `config/validation.rs` checks ranges and required keys for known plugins. Plugin args are free-form YAML parsed by each plugin's `init()`.
+
+Feature flags (`Cargo.toml`): `cron`, `log`, `log-ansi`, `log-file`, `dot`, `doh`, `doq`, `admin`, `metrics`, `web`, `web-embed`. The `full` feature enables everything except `web-embed`.
+
+Status: IMPLEMENTED.
+
+## 9. Testing
+
+Unit tests across all modules (950+ tests). Integration tests in `tests/`:
+
+- `integration_cache.rs`, `integration_ratelimit.rs`, `integration_doq.rs`
+- `integration_ipset_nftset.rs`, `integration_save_hook.rs`
+- `integration_tls_doh_dot.rs`, `integration_test.rs` (wire format)
+- `server_test.rs` (real UDP queries), `web_api_test.rs`
+
+Status: IMPLEMENTED.
+
+## Gaps and next steps
+
+1. Replace CLI-based ipset/nftset with native netlink integration.
+2. Add more per-plugin validation coverage (only 5 plugin types validated today).
+3. Expand integration tests for multi-plugin sequences.
+4. DoH/DoT upstream transport in forward (currently UDP + DoH upstream only).

@@ -91,7 +91,7 @@ Example:
     - `exec`: a plugin tag or quick-setup (such as `accept`, `drop_resp`)
     - `matches`: a condition (such as `qname $domain_list`, `has_resp`, `qtype 1`)
     - `jump`: jump to another sequence tag
-  - `fallback` plugin accepts `primary`, `secondary`, `threshold`, `always_standby`.
+  - `fallback` plugin accepts `primary` and `secondary`.
 
 - Server plugins (udp_server, tcp_server, doh_server, dot_server, doq_server)
   - `entry`: the sequence tag to use as the processing entry point

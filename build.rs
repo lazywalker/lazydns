@@ -8,6 +8,9 @@ fn main() {
     if Path::new("webui/dist").exists() {
         println!("cargo:rustc-cfg=webui_dist");
     } else {
-        println!("cargo:warning=webui/dist not found; building without embedded webui assets");
+        println!(
+            "cargo:warning=webui/dist not found, web-embed feature will have no embedded assets. \
+             Run `cd webui && npm run build` first."
+        );
     }
 }

@@ -12,6 +12,21 @@ license = "GPL-3.0-or-later"
 readme = "README.md"
 keywords = ["dns", "smartdns", "doh", "dot", "doq"]
 categories = ["network-programming"]
+exclude = [
+    ".github/",
+    ".dockerignore",
+    ".gitignore",
+    "Makefile",
+    "benches/",
+    "config.yaml",
+    "docker/",
+    "docs/",
+    "etc/",
+    "examples/",
+    "scripts/",
+    "tests/",
+    "webui/",
+]
 
 [dependencies]
 tokio = { version = "1.49", default-features = false, features = [

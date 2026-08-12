@@ -60,7 +60,7 @@ Use the site sidebar (`en/SUMMARY.md`) or the quick links below to jump to commo
     - [Reject](en/05_09_04_PLUGIN_REJECT.md)
     - [Return](en/05_09_05_PLUGIN_RETURN.md)
     - [Prefer_IPv4](en/05_09_06_PLUGIN_PREFER_IPV4.md)
-    - [Prefer_IPv6](05_09_07_PLUGIN_PREFER_IPV6.md)
+    - [Prefer_IPv6](en/05_09_07_PLUGIN_PREFER_IPV6.md)
 * [Writing Plugins (Developer)](en/06_WRITING_PLUGINS.md)
 * [Datasets & Formats](en/07_DATASETS.md)
 * [Changelog](en/16_CHANGELOG.md)

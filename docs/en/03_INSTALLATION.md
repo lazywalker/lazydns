@@ -10,26 +10,20 @@ Installs the latest published crate to your Cargo bin directory:
 cargo install lazydns
 ```
 
-### 2.1 Debian / Ubuntu (.deb via APT repo)
-Add the repository key and source, then install with `apt`:
+> **Note on the WebUI**: `cargo install` builds the server core only. For a binary with the WebUI bundled in, use the pre-built release binaries.
+
+### 2.1 Debian / Ubuntu (amd64)
+Download the `.deb` from [GitHub Releases](https://github.com/lazywalker/lazydns/releases) and install with `dpkg`:
 ```bash
-sudo curl -fsSL https://raw.githubusercontent.com/lazywalker/apt/refs/heads/master/debian/key.asc -o /etc/apt/trusted.gpg.d/lazywalker.asc
-
-echo "deb https://raw.githubusercontent.com/lazywalker/apt/refs/heads/master/debian/ stable main" | sudo tee /etc/apt/sources.list.d/lazywalker.list
-
-sudo apt update
-sudo apt install lazydns
+curl -LO https://github.com/lazywalker/lazydns/releases/latest/download/lazydns_<version>-1_amd64.deb
+sudo dpkg -i lazydns_<version>-1_amd64.deb
 ```
 
-### 2.2 Raspberry Pi OS (Trixie, arm64)
-Use the same repo but restrict to `arm64` architecture in the sources.list entry:
+### 2.2 Raspberry Pi OS / arm64
+Download the `arm64` `.deb` and install with `dpkg`:
 ```bash
-sudo curl -fsSL https://raw.githubusercontent.com/lazywalker/apt/refs/heads/master/debian/key.asc -o /etc/apt/trusted.gpg.d/lazywalker.asc
-
-echo "deb [arch=arm64] https://raw.githubusercontent.com/lazywalker/apt/refs/heads/master/debian/ stable main" | sudo tee /etc/apt/sources.list.d/lazywalker.list
-
-sudo apt update
-sudo apt install lazydns
+curl -LO https://github.com/lazywalker/lazydns/releases/latest/download/lazydns_<version>-1_arm64.deb
+sudo dpkg -i lazydns_<version>-1_arm64.deb
 ```
 
 ### 2.3 Install on Arch Linux
@@ -38,7 +32,7 @@ You can install lazydns from the Arch User Repository (AUR) using an AUR helper 
 yay -S lazydns-bin
 ```
 
-### 3. Systemd Service Setup (via apt & systemd Linux)
+### 3. Systemd Service Setup (Debian / Ubuntu / Raspberry Pi OS)
 after installation, modify the config file at `/etc/lazydns/lazydns.yaml` as needed, then start the service:
 ```bash
 sudo systemctl start lazydns
@@ -79,7 +73,7 @@ docker run -d \
 
 ## Upgrading
 - From `cargo install`: `cargo install --force lazydns`
-- From APT: `sudo apt update && sudo apt upgrade` (package upgrades coming from the repo)
+- From `.deb`: download the new `.deb` and run `sudo dpkg -i` again
 - From Docker: pull the new image and recreate the container:
 ```bash
 docker pull lazywalker/lazydns:latest
