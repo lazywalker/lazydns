@@ -95,7 +95,6 @@ pub trait Plugin: Send + Sync + Debug + Any + 'static {
 
     /// Get the plugin as Any for downcasting
     fn as_any(&self) -> &dyn Any {
-        // Concrete implementations should override this
         &()
     }
 

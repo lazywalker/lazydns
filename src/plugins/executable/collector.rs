@@ -39,7 +39,6 @@ static METRICS_CACHE: Lazy<Mutex<HashMap<String, MetricsTuple>>> =
 #[derive(Debug, Clone, RegisterExecPlugin)]
 pub struct MetricsCollectorPlugin {
     counter: Arc<AtomicUsize>,
-    _start_time: std::time::Instant,
     last_reset: Arc<std::sync::RwLock<std::time::Instant>>,
     total_latency_ms: Arc<AtomicUsize>,
 }
@@ -50,7 +49,6 @@ impl MetricsCollectorPlugin {
         let now = std::time::Instant::now();
         Self {
             counter,
-            _start_time: now,
             last_reset: Arc::new(std::sync::RwLock::new(now)),
             total_latency_ms: Arc::new(AtomicUsize::new(0)),
         }

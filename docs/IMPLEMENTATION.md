@@ -32,7 +32,7 @@ Status: PARTIAL: UDP/TCP/DoH/DoT/DoQ present, not all features.
 ### Core plugin coverage (select)
 
 - `forward`: Implemented (`src/plugins/forward.rs`); supports multiple upstreams and concurrent queries. Transport feature parity (DoH/DoT/DoQ upstream) is partial on transport side.
-- `cache`: Implemented (`src/plugins/cache.rs`). - TODO: `lazy_cache_ttl`
+- `cache`: Implemented (`src/plugins/cache/mod.rs`). - TODO: `lazy_cache_ttl`
 - `hosts`: Implemented (`src/plugins/hosts.rs`). Parser supports both ip-first and hostname-first lines, multiple IPs per line, and mixed ordering across files; unit tests verify A/AAAA behavior and hostname-first parsing.
 - `domain_set` / `geosite`: Implemented (`src/plugins/domain_matcher.rs`, `src/plugins/geosite.rs`).
 - `ip_set` / IP matching: Implemented (`src/plugins/ip_matcher.rs`, `src/plugins/data_provider.rs`).

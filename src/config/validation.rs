@@ -171,169 +171,123 @@ fn validate_plugin_args(
     args: &std::collections::HashMap<String, Value>,
 ) -> Result<()> {
     match plugin_type {
-        "rate_limit" | "ratelimit" => {
-            validate_u32_range(args, "max_queries", MIN_RATE_LIMIT, MAX_RATE_LIMIT, false)?;
-            validate_u64_range(args, "window_secs", MIN_WINDOW_SECS, MAX_WINDOW_SECS, false)?;
+        "rate_limit" => {
+            validate_int_range::<u32>(args, "max_queries", MIN_RATE_LIMIT, MAX_RATE_LIMIT, false)?;
+            validate_int_range::<u64>(
+                args,
+                "window_secs",
+                MIN_WINDOW_SECS,
+                MAX_WINDOW_SECS,
+                false,
+            )?;
         }
         "ttl" => {
-            validate_u32_range(args, "ttl", 0, MAX_TTL, true)?;
-            validate_u32_range(args, "min", 0, MAX_TTL, true)?;
-            validate_u32_range(args, "max", 0, MAX_TTL, true)?;
+            validate_int_range::<u32>(args, "ttl", 0, MAX_TTL, true)?;
+            validate_int_range::<u32>(args, "min", 0, MAX_TTL, true)?;
+            validate_int_range::<u32>(args, "max", 0, MAX_TTL, true)?;
         }
         "downloader" => {
-            validate_u64_range(
+            validate_int_range::<u64>(
                 args,
                 "timeout_secs",
                 MIN_TIMEOUT_SECS,
                 MAX_TIMEOUT_SECS,
                 true,
             )?;
-            validate_u64_range(args, "retry_delay_secs", 0, MAX_TIMEOUT_SECS, true)?;
-            validate_usize_range(args, "max_retries", 0, 100, true)?;
+            validate_int_range::<u64>(args, "retry_delay_secs", 0, MAX_TIMEOUT_SECS, true)?;
+            validate_int_range::<usize>(args, "max_retries", 0, 100, true)?;
         }
         "cache" => {
-            validate_usize_range(args, "size", 1, usize::MAX, true)?;
-            validate_u32_range(args, "negative_ttl", 0, MAX_TTL, true)?;
+            validate_int_range::<usize>(args, "size", 1, usize::MAX, true)?;
+            validate_int_range::<u32>(args, "negative_ttl", 0, MAX_TTL, true)?;
         }
         "forward" => {
-            validate_u64_range(args, "timeout", MIN_TIMEOUT_SECS, MAX_TIMEOUT_SECS, true)?;
-            validate_usize_range(args, "concurrent", 1, 1000, true)?;
+            validate_int_range::<u64>(args, "timeout", MIN_TIMEOUT_SECS, MAX_TIMEOUT_SECS, true)?;
+            validate_int_range::<usize>(args, "concurrent", 1, 1000, true)?;
         }
-        _ => {
-            // For unknown plugin types, skip specific validation
-        }
+        _ => {}
     }
 
     Ok(())
 }
 
-/// Validate u32 value in range
-fn validate_u32_range(
-    args: &std::collections::HashMap<String, Value>,
-    key: &str,
-    min: u32,
-    max: u32,
-    optional: bool,
-) -> Result<()> {
-    if let Some(value) = args.get(key) {
-        let val = extract_u32(value, key)?;
-        if val < min || val > max {
-            return Err(Error::Config(format!(
-                "Parameter '{}' must be between {} and {}, got {}",
-                key, min, max, val
-            )));
-        }
-    } else if !optional {
-        return Err(Error::Config(format!(
-            "Required parameter '{}' is missing",
-            key
-        )));
-    }
-    Ok(())
+trait IntValue: Copy + PartialOrd + std::fmt::Display + std::str::FromStr + TryFrom<u64> {
+    fn from_yaml_number(n: &serde_yaml::Number) -> Option<Self>;
+    fn type_name() -> &'static str;
 }
 
-/// Validate u64 value in range
-fn validate_u64_range(
-    args: &std::collections::HashMap<String, Value>,
-    key: &str,
-    min: u64,
-    max: u64,
-    optional: bool,
-) -> Result<()> {
-    if let Some(value) = args.get(key) {
-        let val = extract_u64(value, key)?;
-        if val < min || val > max {
-            return Err(Error::Config(format!(
-                "Parameter '{}' must be between {} and {}, got {}",
-                key, min, max, val
-            )));
-        }
-    } else if !optional {
-        return Err(Error::Config(format!(
-            "Required parameter '{}' is missing",
-            key
-        )));
+impl IntValue for u32 {
+    fn from_yaml_number(n: &serde_yaml::Number) -> Option<Self> {
+        n.as_u64().and_then(|v| u32::try_from(v).ok())
     }
-    Ok(())
+    fn type_name() -> &'static str {
+        "u32"
+    }
 }
 
-/// Validate usize value in range
-fn validate_usize_range(
-    args: &std::collections::HashMap<String, Value>,
-    key: &str,
-    min: usize,
-    max: usize,
-    optional: bool,
-) -> Result<()> {
-    if let Some(value) = args.get(key) {
-        let val = extract_usize(value, key)?;
-        if val < min || val > max {
-            return Err(Error::Config(format!(
-                "Parameter '{}' must be between {} and {}, got {}",
-                key, min, max, val
-            )));
-        }
-    } else if !optional {
-        return Err(Error::Config(format!(
-            "Required parameter '{}' is missing",
-            key
-        )));
+impl IntValue for u64 {
+    fn from_yaml_number(n: &serde_yaml::Number) -> Option<Self> {
+        n.as_u64()
     }
-    Ok(())
+    fn type_name() -> &'static str {
+        "u64"
+    }
 }
 
-/// Extract u32 from YAML value
-fn extract_u32(value: &Value, key: &str) -> Result<u32> {
+impl IntValue for usize {
+    fn from_yaml_number(n: &serde_yaml::Number) -> Option<Self> {
+        n.as_u64().and_then(|v| usize::try_from(v).ok())
+    }
+    fn type_name() -> &'static str {
+        "usize"
+    }
+}
+
+fn extract_int<T: IntValue>(value: &Value, key: &str) -> Result<T> {
     match value {
-        Value::Number(n) => n
-            .as_u64()
-            .and_then(|v| u32::try_from(v).ok())
-            .ok_or_else(|| {
-                Error::Config(format!("Parameter '{}' must be a valid u32 number", key))
-            }),
-        Value::String(s) => s
-            .parse::<u32>()
-            .map_err(|_| Error::Config(format!("Parameter '{}' must be a valid u32 number", key))),
-        _ => Err(Error::Config(format!(
-            "Parameter '{}' must be a number",
-            key
-        ))),
-    }
-}
-
-/// Extract u64 from YAML value
-fn extract_u64(value: &Value, key: &str) -> Result<u64> {
-    match value {
-        Value::Number(n) => n.as_u64().ok_or_else(|| {
-            Error::Config(format!("Parameter '{}' must be a valid u64 number", key))
+        Value::Number(n) => T::from_yaml_number(n).ok_or_else(|| {
+            Error::Config(format!(
+                "Parameter '{}' must be a valid {} number",
+                key,
+                T::type_name()
+            ))
         }),
-        Value::String(s) => s
-            .parse::<u64>()
-            .map_err(|_| Error::Config(format!("Parameter '{}' must be a valid u64 number", key))),
-        _ => Err(Error::Config(format!(
-            "Parameter '{}' must be a number",
-            key
-        ))),
-    }
-}
-
-/// Extract usize from YAML value
-fn extract_usize(value: &Value, key: &str) -> Result<usize> {
-    match value {
-        Value::Number(n) => n
-            .as_u64()
-            .and_then(|v| usize::try_from(v).ok())
-            .ok_or_else(|| {
-                Error::Config(format!("Parameter '{}' must be a valid usize number", key))
-            }),
-        Value::String(s) => s.parse::<usize>().map_err(|_| {
-            Error::Config(format!("Parameter '{}' must be a valid usize number", key))
+        Value::String(s) => s.parse::<T>().map_err(|_| {
+            Error::Config(format!(
+                "Parameter '{}' must be a valid {} number",
+                key,
+                T::type_name()
+            ))
         }),
         _ => Err(Error::Config(format!(
             "Parameter '{}' must be a number",
             key
         ))),
     }
+}
+
+fn validate_int_range<T: IntValue>(
+    args: &std::collections::HashMap<String, Value>,
+    key: &str,
+    min: T,
+    max: T,
+    optional: bool,
+) -> Result<()> {
+    if let Some(value) = args.get(key) {
+        let val = extract_int::<T>(value, key)?;
+        if val < min || val > max {
+            return Err(Error::Config(format!(
+                "Parameter '{}' must be between {} and {}, got {}",
+                key, min, max, val
+            )));
+        }
+    } else if !optional {
+        return Err(Error::Config(format!(
+            "Required parameter '{}' is missing",
+            key
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -457,7 +411,7 @@ plugins: []
         use std::collections::HashMap;
 
         let mut args = HashMap::new();
-        args.insert("fix".to_string(), Value::Number(300.into()));
+        args.insert("ttl".to_string(), Value::Number(300.into()));
         args.insert("min".to_string(), Value::Number(30.into()));
         args.insert("max".to_string(), Value::Number(3600.into()));
 

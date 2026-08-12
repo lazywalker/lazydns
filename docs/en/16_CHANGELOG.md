@@ -18,6 +18,10 @@ This file contains high-level release notes and migration guidance.
 - dedup REFUSED response construction via `Context::set_refused`
 - remove dead `should_execute` plugin hook
 - merge duplicate `MemoryMetricsConfig` struct
+- dedup server launchers via shared `spawn_server` helper
+- collapse validation range helpers into one generic
+- remove dead `reverse_lookup.size` config, `register_plugin_builder!` macros, `collector._start_time` field
+- remove stale `CACHE_CLEANUP.md` doc and `priority`/`should_execute` references across docs
 
 ## Release v0.3.20
 

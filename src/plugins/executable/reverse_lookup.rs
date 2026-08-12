@@ -12,8 +12,6 @@ use std::time::{Duration, Instant};
 
 /// Configuration arguments for `ReverseLookupPlugin`.
 ///
-/// - `size`: approximate capacity for the in-memory reverse cache (unused
-///   beyond documentation parity with upstream implementations).
 /// - `handle_ptr`: whether the plugin should attempt to answer PTR queries
 ///   directly from the cache.
 /// - `ttl`: maximum TTL (in seconds) to honor when storing answers from
@@ -21,7 +19,6 @@ use std::time::{Duration, Instant};
 ///   configured value.
 #[derive(Debug, Clone)]
 pub struct ReverseLookupArgs {
-    pub size: usize,
     pub handle_ptr: bool,
     pub ttl: u32,
 }
@@ -29,7 +26,6 @@ pub struct ReverseLookupArgs {
 impl Default for ReverseLookupArgs {
     fn default() -> Self {
         Self {
-            size: 64 * 1024,
             handle_ptr: true,
             ttl: 7200,
         }
@@ -223,22 +219,6 @@ impl Plugin for ReverseLookupPlugin {
 
         let mut args = ReverseLookupArgs::default();
 
-        if let Some(v) = args_map.get("size") {
-            match v {
-                Value::Number(n) => {
-                    if let Some(u) = n.as_u64() {
-                        args.size = u as usize;
-                    }
-                }
-                Value::String(s) => {
-                    if let Ok(u) = s.parse::<usize>() {
-                        args.size = u;
-                    }
-                }
-                _ => {}
-            }
-        }
-
         if let Some(Value::Bool(b)) = args_map.get("handle_ptr") {
             args.handle_ptr = *b;
         }
@@ -309,17 +289,8 @@ impl ReverseLookupPlugin {
         self.lookup(ip)
     }
 
-    /// Create a quick-setup instance from a size string (upstream-compatible
-    /// helper). If `s` parses as a positive integer it will be used as the
-    /// cache size; otherwise defaults are applied.
-    pub fn quick_setup(s: &str) -> Self {
-        let mut args = ReverseLookupArgs::default();
-        if !s.is_empty()
-            && let Ok(n) = s.parse::<usize>()
-        {
-            args.size = n;
-        }
-        Self::new(args)
+    pub fn quick_setup(_s: &str) -> Self {
+        Self::new(ReverseLookupArgs::default())
     }
 }
 
@@ -332,7 +303,6 @@ mod tests {
     #[test]
     fn test_reverse_lookup_args_default() {
         let args = ReverseLookupArgs::default();
-        assert_eq!(args.size, 64 * 1024);
         assert!(args.handle_ptr);
         assert_eq!(args.ttl, 7200);
     }
@@ -354,19 +324,6 @@ mod tests {
     fn test_reverse_lookup_quick_setup_default() {
         let plugin = ReverseLookupPlugin::quick_setup("");
         assert_eq!(plugin.name(), "reverse_lookup");
-    }
-
-    #[test]
-    fn test_reverse_lookup_quick_setup_with_size() {
-        let plugin = ReverseLookupPlugin::quick_setup("1000");
-        assert_eq!(plugin.args.size, 1000);
-    }
-
-    #[test]
-    fn test_reverse_lookup_quick_setup_invalid() {
-        let plugin = ReverseLookupPlugin::quick_setup("not-a-number");
-        // Should use default size
-        assert_eq!(plugin.args.size, 64 * 1024);
     }
 
     #[tokio::test]

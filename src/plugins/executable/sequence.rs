@@ -11,11 +11,6 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::trace;
 
-// Plugin builder registration for SequencePlugin
-// Full sequence parsing with conditions is complex
-// and should be handled by the builder system.
-// crate::register_plugin_builder!(SequencePlugin);
-
 /// A sequential execution step for `SequencePlugin`.
 pub enum SequenceStep {
     /// Execute a plugin unconditionally

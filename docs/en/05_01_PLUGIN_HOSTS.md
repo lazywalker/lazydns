@@ -9,7 +9,6 @@ The `hosts` plugin provides local name-to-IP mappings similar to `/etc/hosts`. I
 - Supports both IPv4 and IPv6 (A and AAAA answers)
 - Fast in-memory lookup with O(1) complexity
 - Load from one or more files and optionally auto-reload on changes
-- Plugin priority: **100** (typically placed early in the pipeline)
 
 ## Behavior
 
@@ -77,7 +76,7 @@ Notes:
 
 ## Best practices
 
-- Place `hosts` early in the pipeline (default priority=100) to ensure local overrides are applied before expensive upstream queries.
+- Place `hosts` early in the pipeline to ensure local overrides are applied before expensive upstream queries.
 - Use `auto_reload: true` during development for fast iteration, and consider disabling it for production deployments if filesystem stability is a concern.
 - Keep host files small and focused (such as project-specific overrides) if you use auto-reload to avoid frequent reloads.
 

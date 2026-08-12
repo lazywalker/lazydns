@@ -56,7 +56,7 @@ or view the log file at `/var/log/lazydns/lazydns.log.*`.
 ### 4. Homebrew (macOS / Linuxbrew)
 Tap the Homebrew repository and install via `brew`:
 ```bash
-brew tap lazywalker/lazydns
+brew tap lazywalker/tap
 brew install lazydns
 
 # make modifications to config file if needed
