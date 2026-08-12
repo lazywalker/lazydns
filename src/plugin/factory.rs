@@ -196,48 +196,6 @@ fn initialize_all_exec_plugin_factories() {
     });
 }
 
-/// Backward compatibility macro for registering plugin factories
-///
-/// This macro is deprecated - use `#[derive(RegisterPlugin)]` instead.
-///
-/// # Example
-///
-/// ```ignore
-/// register_plugin_builder!(MyPlugin);
-/// // Equivalent to:
-/// #[derive(RegisterPlugin)]
-/// struct MyPlugin;
-/// ```
-#[macro_export]
-#[deprecated(since = "0.2.61", note = "Use #[derive(RegisterPlugin)] instead.")]
-macro_rules! register_plugin_builder {
-    ($plugin_type:ty) => {
-        compile_error!(
-            "register_plugin_builder! is deprecated. Use #[derive(RegisterPlugin)] instead."
-        );
-    };
-}
-
-/// Backward compatibility macro for registering exec plugin factories
-///
-/// This macro is deprecated - use `#[derive(RegisterExecPlugin)]` instead.
-///
-/// # Example
-///
-/// ```ignore
-/// register_exec_plugin_builder!(MyExecPlugin);
-/// // Equivalent to:
-/// #[derive(RegisterExecPlugin)]
-/// struct MyExecPlugin;
-/// ```
-#[macro_export]
-#[deprecated(since = "0.2.61", note = "Use #[derive(RegisterExecPlugin)] instead.")]
-macro_rules! register_exec_plugin_builder {
-    ($plugin_type:ty) => {
-        compile_error!("register_exec_plugin_builder! is deprecated. Use #[derive(RegisterExecPlugin)] instead.");
-    };
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
