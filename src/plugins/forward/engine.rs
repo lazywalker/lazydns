@@ -10,7 +10,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{OnceCell, oneshot};
 use tracing::{trace, warn};
 
-use super::types::{LoadBalanceStrategy, UdpMuxState, Upstream};
+use super::types::{LoadBalanceStrategy, PendingQuery, UdpMuxState, Upstream};
 use crate::Result;
 use crate::dns::Message;
 
@@ -171,7 +171,13 @@ impl Forward {
         request_data[1] = (assigned_qid & 0xFF) as u8;
 
         let (tx, mut rx) = oneshot::channel();
-        mux.pending.insert(assigned_qid, tx);
+        mux.pending.insert(
+            assigned_qid,
+            PendingQuery {
+                peer: upstream_addr,
+                tx,
+            },
+        );
 
         let sent = mux.socket.send_to(&request_data, upstream_addr).await?;
         trace!(
@@ -213,8 +219,23 @@ impl Forward {
                 Ok((len, addr)) => match crate::dns::wire::parse_message(&buf[..len]) {
                     Ok(response) => {
                         let qid = response.id();
-                        if let Some((_, tx)) = state.pending.remove(&qid) {
-                            let _ = tx.send(response);
+                        // copy peer out first: remove on a held guard deadlocks
+                        let expected_peer = state.pending.get(&qid).map(|e| e.value().peer);
+                        match expected_peer {
+                            // only the queried upstream may answer; a guessed
+                            // qid from another source is a spoofing attempt
+                            Some(peer) if addr == peer => {
+                                if let Some((_, pending)) = state.pending.remove(&qid) {
+                                    let _ = pending.tx.send(response);
+                                }
+                            }
+                            Some(peer) => {
+                                warn!(
+                                    "DNS response qid {} from {} does not match upstream {}, ignored",
+                                    qid, addr, peer
+                                );
+                            }
+                            None => {}
                         }
                     }
                     Err(e) => {
