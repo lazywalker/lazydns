@@ -68,6 +68,12 @@ pub struct ServerConfig {
 
     /// DoH query path (default: /dns-query)
     pub doh_path: Option<String>,
+
+    /// Whether the DoH server may trust `X-Forwarded-For` to determine the
+    /// client address. Only enable behind a trusted reverse proxy: direct
+    /// clients can otherwise spoof their IP to bypass ACLs and rate limits.
+    /// Default: `false`.
+    pub trust_forwarded_for: bool,
 }
 
 impl std::fmt::Debug for ServerConfig {
@@ -83,6 +89,7 @@ impl std::fmt::Debug for ServerConfig {
             .field("cert_path", &self.cert_path)
             .field("key_path", &self.key_path)
             .field("doh_path", &self.doh_path)
+            .field("trust_forwarded_for", &self.trust_forwarded_for)
             .finish()
     }
 }
@@ -111,6 +118,7 @@ impl Default for ServerConfig {
             cert_path: None,
             key_path: None,
             doh_path: None,
+            trust_forwarded_for: false,
         }
     }
 }
@@ -224,6 +232,13 @@ impl ServerConfig {
     /// Set the DoH query path.
     pub fn with_doh_path(mut self, path: String) -> Self {
         self.doh_path = Some(path);
+        self
+    }
+
+    /// Set whether the DoH server trusts `X-Forwarded-For` (only safe
+    /// behind a trusted reverse proxy).
+    pub fn with_trust_forwarded_for(mut self, trust: bool) -> Self {
+        self.trust_forwarded_for = trust;
         self
     }
 }
