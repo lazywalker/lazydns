@@ -399,11 +399,14 @@ fn default_webhook_retries() -> u32 {
 /// CORS configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CorsConfig {
-    /// Allowed origins (empty = allow all)
+    /// Allowed origins for cross-origin browser access. Empty (default)
+    /// emits no CORS headers: only same-origin requests work. The admin
+    /// API is unauthenticated, so only list origins you fully trust.
     #[serde(default)]
     pub allowed_origins: Vec<String>,
 
-    /// Whether to allow credentials
+    /// Allow credentials in cross-origin requests (only applied when
+    /// `allowed_origins` is configured)
     #[serde(default)]
     pub allow_credentials: bool,
 }
