@@ -124,10 +124,19 @@ impl Upstream {
     }
 }
 
+/// A query in flight on the shared UDP socket, awaiting its response.
+#[derive(Debug)]
+pub(crate) struct PendingQuery {
+    /// upstream the query was sent to; responses from any other source are
+    /// dropped (guessed-qid spoofing)
+    pub(crate) peer: std::net::SocketAddr,
+    pub(crate) tx: oneshot::Sender<Message>,
+}
+
 /// Shared UDP socket state for qid-based response multiplexing.
 #[derive(Debug)]
 pub(crate) struct UdpMuxState {
     pub(crate) socket: UdpSocket,
-    pub(crate) pending: DashMap<u16, oneshot::Sender<Message>>,
+    pub(crate) pending: DashMap<u16, PendingQuery>,
     pub(crate) next_qid: AtomicU16,
 }

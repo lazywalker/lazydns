@@ -107,15 +107,19 @@ impl ReverseLookupPlugin {
 
     fn lookup(&self, ip: &IpAddr) -> Option<String> {
         let key = ip.to_string();
-        if let Some(v) = self.cache.get(&key) {
-            if v.value().1 > Instant::now() {
-                return Some(v.value().0.clone());
-            } else {
-                // expired
-                self.cache.remove(&key);
-            }
+        // drop the shard guard before remove: same-key remove needs the
+        // write guard and deadlocks
+        let (fqdn, expires_at) = {
+            let entry = self.cache.get(&key)?;
+            entry.value().clone()
+        };
+        if expires_at > Instant::now() {
+            Some(fqdn)
+        } else {
+            // expired
+            self.cache.remove(&key);
+            None
         }
-        None
     }
 
     fn save_from_response(&self, req: &Message, resp: &Message) {

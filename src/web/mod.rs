@@ -52,7 +52,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 // Re-export upstream registry for easy access
 pub use upstream_registry::{
@@ -115,24 +115,37 @@ impl WebServer {
     fn build_router(&self) -> Router {
         let state = Arc::clone(&self.state);
 
-        // Build CORS layer
+        // no origins configured: emit no CORS headers (same-origin only).
+        // The admin API is unauthenticated, so allow_origin(Any) would let
+        // any website POST to it from a visitor's browser.
         let cors = if self.config.cors.allowed_origins.is_empty() {
+            info!(
+                "WebUI CORS: same-origin only; configure web.cors.allowed_origins to allow external origins"
+            );
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any)
         } else {
             let origins: Vec<_> = self
                 .config
                 .cors
                 .allowed_origins
                 .iter()
-                .filter_map(|s| s.parse().ok())
+                .filter_map(|s| match s.parse() {
+                    Ok(origin) => Some(origin),
+                    Err(_) => {
+                        warn!(origin = %s, "Invalid entry in web.cors.allowed_origins, ignoring");
+                        None
+                    }
+                })
                 .collect();
-            CorsLayer::new()
+            let layer = CorsLayer::new()
                 .allow_origin(origins)
                 .allow_methods(Any)
-                .allow_headers(Any)
+                .allow_headers(Any);
+            if self.config.cors.allow_credentials {
+                layer.allow_credentials(true)
+            } else {
+                layer
+            }
         };
 
         // Request tracing/logging layer for debugging

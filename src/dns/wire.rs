@@ -100,7 +100,9 @@ fn convert_from_hickory(hickory_msg: hickory_proto::op::Message) -> Result<Messa
     };
     message.set_opcode(opcode);
 
-    // Convert response code
+    // Convert response code. Codes without a named variant keep their wire
+    // value; BADVERS/BADSIG and friends land in Unknown(16..) and survive
+    // the round trip.
     let rcode = match hickory_msg.response_code() {
         HickoryRCode::NoError => crate::dns::ResponseCode::NoError,
         HickoryRCode::FormErr => crate::dns::ResponseCode::FormErr,
@@ -108,30 +110,20 @@ fn convert_from_hickory(hickory_msg: hickory_proto::op::Message) -> Result<Messa
         HickoryRCode::NXDomain => crate::dns::ResponseCode::NXDomain,
         HickoryRCode::NotImp => crate::dns::ResponseCode::NotImp,
         HickoryRCode::Refused => crate::dns::ResponseCode::Refused,
-        HickoryRCode::YXDomain => crate::dns::ResponseCode::ServFail, // Map to ServFail
-        HickoryRCode::YXRRSet => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::NXRRSet => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::NotAuth => crate::dns::ResponseCode::Refused,
-        HickoryRCode::NotZone => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADVERS => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADSIG => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADKEY => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADTIME => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADMODE => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADNAME => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADALG => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADTRUNC => crate::dns::ResponseCode::ServFail,
-        HickoryRCode::BADCOOKIE => crate::dns::ResponseCode::ServFail,
-        _ => crate::dns::ResponseCode::ServFail,
+        HickoryRCode::YXDomain => crate::dns::ResponseCode::YXDomain,
+        HickoryRCode::YXRRSet => crate::dns::ResponseCode::YXRRSet,
+        HickoryRCode::NXRRSet => crate::dns::ResponseCode::NXRRSet,
+        HickoryRCode::NotAuth => crate::dns::ResponseCode::NotAuth,
+        HickoryRCode::NotZone => crate::dns::ResponseCode::NotZone,
+        other => crate::dns::ResponseCode::Unknown(u16::from(other).min(255) as u8),
     };
     message.set_response_code(rcode);
 
-    // Convert questions
+    // Convert questions. strip_suffix removes exactly the root dot: an
+    // escaped trailing dot renders as "\." and must survive intact.
     for q in hickory_msg.queries() {
-        // Normalize domain names by removing trailing dots when converting from hickory-proto,
-        // so parsed qnames match other code expectations
-        let mut qname = q.name().to_utf8();
-        qname = qname.trim_end_matches('.').to_string();
+        let qname = q.name().to_utf8();
+        let qname = qname.strip_suffix('.').unwrap_or(&qname);
         let qtype = RecordType::from_u16(q.query_type().into());
         let qclass = RecordClass::from_u16(q.query_class().into());
 
@@ -159,51 +151,103 @@ fn convert_from_hickory(hickory_msg: hickory_proto::op::Message) -> Result<Messa
         }
     }
 
+    // hickory lifts the OPT RR out of additionals into extensions(); put it
+    // back as an additional record so DO-bit checks and forwarding see it.
+    // Payload size rides in the class field, per RFC 6891 wire layout.
+    if let Some(edns) = hickory_msg.extensions() {
+        message.add_additional(ResourceRecord::new(
+            ".",
+            RecordType::OPT,
+            RecordClass::from_u16(edns.max_payload()),
+            0,
+            crate::dns::RData::OPT {
+                extended_rcode: edns.rcode_high(),
+                version: edns.version(),
+                flags: if edns.dnssec_ok() { 0x8000 } else { 0 },
+                options: edns_options_blob(edns),
+            },
+        ));
+    }
+
     Ok(message)
+}
+
+/// Flatten EDNS options into the wire TLV layout (code, len, value, ...).
+/// hickory keeps options in a typed map; EdnsOption::emit writes only the
+/// value bytes, so the headers are prepended here.
+fn edns_options_blob(edns: &hickory_proto::op::Edns) -> Vec<u8> {
+    use hickory_proto::serialize::binary::BinEncoder;
+
+    let mut blob = Vec::new();
+    for (code, opt) in edns.options().as_ref() {
+        blob.extend_from_slice(&u16::from(*code).to_be_bytes());
+        blob.extend_from_slice(&opt.len().to_be_bytes());
+        let mut enc = BinEncoder::new(&mut blob);
+        let _ = opt.emit(&mut enc);
+    }
+    blob
+}
+
+/// hickory name rendered without the root dot, as one owned String.
+fn unrooted_name(name: &hickory_proto::rr::Name) -> String {
+    let s = name.to_utf8();
+    s.strip_suffix('.').unwrap_or(&s).to_string()
 }
 
 /// Convert a hickory-proto record to our ResourceRecord type
 fn convert_hickory_record(record: &hickory_proto::rr::Record) -> Option<ResourceRecord> {
     use hickory_proto::rr::RData as HickoryRData;
-    let mut name = record.name().to_utf8();
-    name = name.trim_end_matches('.').to_string();
+    use hickory_proto::serialize::binary::BinEncoder;
+
+    let name = record.name().to_utf8();
+    let name = name.strip_suffix('.').unwrap_or(&name);
     let rtype = RecordType::from_u16(record.record_type().into());
     let rclass = RecordClass::from_u16(record.dns_class().into());
     let ttl = record.ttl();
 
-    let rdata = match record.data() {
-        Some(HickoryRData::A(ipv4)) => crate::dns::RData::A(ipv4.0),
-        Some(HickoryRData::AAAA(ipv6)) => crate::dns::RData::AAAA(ipv6.0),
-        Some(HickoryRData::CNAME(name)) => {
-            crate::dns::RData::CNAME(name.to_utf8().trim_end_matches('.').to_string())
-        }
-        Some(HickoryRData::MX(mx)) => crate::dns::RData::MX {
+    let data = record.data()?;
+
+    let rdata = match data {
+        HickoryRData::A(ipv4) => crate::dns::RData::A(ipv4.0),
+        HickoryRData::AAAA(ipv6) => crate::dns::RData::AAAA(ipv6.0),
+        HickoryRData::CNAME(name) => crate::dns::RData::CNAME(unrooted_name(name)),
+        HickoryRData::MX(mx) => crate::dns::RData::MX {
             preference: mx.preference(),
-            exchange: mx.exchange().to_utf8().trim_end_matches('.').to_string(),
+            exchange: unrooted_name(mx.exchange()),
         },
-        Some(HickoryRData::NS(ns)) => {
-            crate::dns::RData::NS(ns.to_utf8().trim_end_matches('.').to_string())
-        }
-        Some(HickoryRData::PTR(ptr)) => {
-            crate::dns::RData::PTR(ptr.to_utf8().trim_end_matches('.').to_string())
-        }
-        Some(HickoryRData::TXT(txt)) => {
+        HickoryRData::NS(ns) => crate::dns::RData::NS(unrooted_name(ns)),
+        HickoryRData::PTR(ptr) => crate::dns::RData::PTR(unrooted_name(ptr)),
+        HickoryRData::TXT(txt) => {
             let text_data: Vec<String> = txt
                 .iter()
-                .map(|bytes| String::from_utf8_lossy(bytes).to_string())
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
                 .collect();
             crate::dns::RData::TXT(text_data)
         }
-        Some(HickoryRData::SOA(soa)) => crate::dns::RData::SOA {
-            mname: soa.mname().to_utf8().trim_end_matches('.').to_string(),
-            rname: soa.rname().to_utf8().trim_end_matches('.').to_string(),
+        HickoryRData::SOA(soa) => crate::dns::RData::SOA {
+            mname: unrooted_name(soa.mname()),
+            rname: unrooted_name(soa.rname()),
             serial: soa.serial(),
             refresh: soa.refresh() as u32,
             retry: soa.retry() as u32,
             expire: soa.expire() as u32,
             minimum: soa.minimum(),
         },
-        _ => return None, // Unsupported record type
+        HickoryRData::SRV(srv) => crate::dns::RData::SRV {
+            priority: srv.priority(),
+            weight: srv.weight(),
+            port: srv.port(),
+            target: unrooted_name(srv.target()),
+        },
+        // types without a structural variant (CAA, SVCB/HTTPS, DNSSEC, ...)
+        // ride along as raw rdata so responses survive the round trip; the
+        // record type is preserved on the ResourceRecord itself
+        other => {
+            let mut buf = Vec::new();
+            let mut enc = BinEncoder::new(&mut buf);
+            other.emit(&mut enc).ok()?;
+            crate::dns::RData::Unknown(buf)
+        }
     };
 
     Some(ResourceRecord::new(name, rtype, rclass, ttl, rdata))
@@ -254,16 +298,7 @@ fn convert_to_hickory(message: &Message) -> Result<hickory_proto::op::Message> {
         crate::dns::ResponseCode::NotAuth => hickory_proto::op::ResponseCode::NotAuth,
         crate::dns::ResponseCode::NotZone => hickory_proto::op::ResponseCode::NotZone,
         crate::dns::ResponseCode::Unknown(code) => {
-            // Map unknown codes to the closest match
-            match code {
-                0 => hickory_proto::op::ResponseCode::NoError,
-                1 => hickory_proto::op::ResponseCode::FormErr,
-                2 => hickory_proto::op::ResponseCode::ServFail,
-                3 => hickory_proto::op::ResponseCode::NXDomain,
-                4 => hickory_proto::op::ResponseCode::NotImp,
-                5 => hickory_proto::op::ResponseCode::Refused,
-                _ => hickory_proto::op::ResponseCode::ServFail,
-            }
+            <hickory_proto::op::ResponseCode as From<u16>>::from(code as u16)
         }
     };
     hickory_msg.set_response_code(rcode);
@@ -293,14 +328,49 @@ fn convert_to_hickory(message: &Message) -> Result<hickory_proto::op::Message> {
         }
     }
 
-    // Convert additional records
+    // Convert additional records. An OPT record is the EDNS record (RFC
+    // 6891); hickory wants it in extensions(), not the section.
     for rr in message.additional() {
-        if let Some(record) = convert_to_hickory_record(rr)? {
+        if let crate::dns::RData::OPT {
+            extended_rcode,
+            version,
+            flags,
+            options,
+        } = rr.rdata()
+        {
+            let mut edns = hickory_proto::op::Edns::new();
+            edns.set_rcode_high(*extended_rcode);
+            edns.set_version(*version);
+            edns.set_dnssec_ok(*flags & 0x8000 != 0);
+            // class field carries the requestor payload size
+            edns.set_max_payload(rr.rclass().to_u16().max(512));
+            set_edns_options(&mut edns, options);
+            hickory_msg.set_edns(edns);
+        } else if let Some(record) = convert_to_hickory_record(rr)? {
             hickory_msg.add_additional(record);
         }
     }
 
     Ok(hickory_msg)
+}
+
+/// Split the TLV options blob back into individual EDNS options. hickory
+/// re-emits Unknown options verbatim, so the wire bytes are unchanged.
+fn set_edns_options(edns: &mut hickory_proto::op::Edns, options: &[u8]) {
+    use hickory_proto::rr::rdata::opt::EdnsOption;
+
+    let mut i = 0;
+    while i + 4 <= options.len() {
+        let code = u16::from_be_bytes([options[i], options[i + 1]]);
+        let len = u16::from_be_bytes([options[i + 2], options[i + 3]]) as usize;
+        i += 4;
+        if i + len > options.len() {
+            break;
+        }
+        edns.options_mut()
+            .insert(EdnsOption::Unknown(code, options[i..i + len].to_vec()));
+        i += len;
+    }
 }
 
 /// Convert our ResourceRecord to hickory-proto Record type
@@ -366,7 +436,30 @@ fn convert_to_hickory_record(rr: &ResourceRecord) -> Result<Option<hickory_proto
                 *minimum,
             ))
         }
-        _ => return Ok(None), // Unsupported record type, skip it
+        crate::dns::RData::SRV {
+            priority,
+            weight,
+            port,
+            target,
+        } => {
+            let target_name = Name::from_utf8(target)
+                .map_err(|e| Error::DnsProtocol(format!("Invalid SRV target: {}", e)))?;
+            HickoryRData::SRV(hickory_proto::rr::rdata::SRV::new(
+                *priority,
+                *weight,
+                *port,
+                target_name,
+            ))
+        }
+        // raw bytes from an unmodeled type: re-emit verbatim under the
+        // record's own type
+        crate::dns::RData::Unknown(data) => HickoryRData::Unknown {
+            code: rtype,
+            rdata: hickory_proto::rr::rdata::NULL::with(data.clone()),
+        },
+        // OPT is handled by the caller; structurally-modeled types that
+        // reach here have no hickory counterpart to build
+        _ => return Ok(None),
     };
 
     let mut record = Record::new();
@@ -838,7 +931,6 @@ mod tests {
 
     #[test]
     fn test_roundtrip_yxdomain() {
-        // YXDomain maps to ServFail when converting from hickory
         let mut message = Message::new();
         message.set_id(2020);
         message.set_response(true);
@@ -847,8 +939,7 @@ mod tests {
         let wire_data = serialize_message(&message).unwrap();
         let parsed = parse_message(&wire_data).unwrap();
 
-        // YXDomain maps to ServFail when coming back from hickory
-        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::ServFail);
+        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::YXDomain);
     }
 
     #[test]
@@ -861,8 +952,7 @@ mod tests {
         let wire_data = serialize_message(&message).unwrap();
         let parsed = parse_message(&wire_data).unwrap();
 
-        // YXRRSet maps to ServFail when coming back from hickory
-        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::ServFail);
+        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::YXRRSet);
     }
 
     #[test]
@@ -875,8 +965,7 @@ mod tests {
         let wire_data = serialize_message(&message).unwrap();
         let parsed = parse_message(&wire_data).unwrap();
 
-        // NXRRSet maps to ServFail when coming back from hickory
-        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::ServFail);
+        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::NXRRSet);
     }
 
     #[test]
@@ -889,8 +978,7 @@ mod tests {
         let wire_data = serialize_message(&message).unwrap();
         let parsed = parse_message(&wire_data).unwrap();
 
-        // NotAuth maps to Refused when coming back from hickory
-        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::Refused);
+        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::NotAuth);
     }
 
     #[test]
@@ -903,8 +991,7 @@ mod tests {
         let wire_data = serialize_message(&message).unwrap();
         let parsed = parse_message(&wire_data).unwrap();
 
-        // NotZone maps to ServFail when coming back from hickory
-        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::ServFail);
+        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::NotZone);
     }
 
     #[test]
@@ -912,13 +999,16 @@ mod tests {
         let mut message = Message::new();
         message.set_id(2525);
         message.set_response(true);
-        message.set_response_code(crate::dns::ResponseCode::Unknown(99));
+        // codes above 15 need an OPT record to carry the high bits
+        message.set_response_code(crate::dns::ResponseCode::Unknown(12));
 
         let wire_data = serialize_message(&message).unwrap();
         let parsed = parse_message(&wire_data).unwrap();
 
-        // Unknown codes map to ServFail
-        assert_eq!(parsed.response_code(), crate::dns::ResponseCode::ServFail);
+        assert_eq!(
+            parsed.response_code(),
+            crate::dns::ResponseCode::Unknown(12)
+        );
     }
 
     #[test]
@@ -989,14 +1079,11 @@ mod tests {
     }
 
     #[test]
-    fn test_unsupported_record_skipped() {
-        // Create a message with a record type that we support and serialize it
-        // Then verify unsupported record types in our internal format are handled
+    fn test_raw_record_preserved() {
         let mut message = Message::new();
         message.set_id(3131);
         message.set_response(true);
 
-        // Add an A record (supported)
         message.add_answer(ResourceRecord::new(
             "example.com",
             RecordType::A,
@@ -1005,7 +1092,7 @@ mod tests {
             crate::dns::RData::A(std::net::Ipv4Addr::new(192, 168, 1, 1)),
         ));
 
-        // Add an unknown/unsupported RData type
+        // unmodeled type: raw bytes must survive with the type intact
         message.add_answer(ResourceRecord::new(
             "example.com",
             RecordType::Unknown(99),
@@ -1014,18 +1101,156 @@ mod tests {
             crate::dns::RData::Unknown(vec![1, 2, 3, 4]),
         ));
 
-        // Serialize - unsupported records should be skipped, not error
         let wire_data = serialize_message(&message).unwrap();
         let parsed = parse_message(&wire_data).unwrap();
 
-        // Only the supported A record should be in the response
+        assert_eq!(parsed.answer_count(), 2);
+        let raw = &parsed.answers()[1];
+        assert_eq!(raw.rtype(), RecordType::Unknown(99));
+        assert_eq!(raw.rdata(), &crate::dns::RData::Unknown(vec![1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn test_roundtrip_srv_record() {
+        let mut message = Message::new();
+        message.set_id(3737);
+        message.set_response(true);
+        message.add_answer(ResourceRecord::new(
+            "_sip._tcp.example.com",
+            RecordType::SRV,
+            RecordClass::IN,
+            300,
+            crate::dns::RData::SRV {
+                priority: 10,
+                weight: 60,
+                port: 5060,
+                target: "sipserver.example.com".to_string(),
+            },
+        ));
+
+        let wire_data = serialize_message(&message).unwrap();
+        let parsed = parse_message(&wire_data).unwrap();
+
         assert_eq!(parsed.answer_count(), 1);
         match parsed.answers()[0].rdata() {
-            crate::dns::RData::A(ip) => {
-                assert_eq!(*ip, std::net::Ipv4Addr::new(192, 168, 1, 1))
+            crate::dns::RData::SRV {
+                priority,
+                weight,
+                port,
+                target,
+            } => {
+                assert_eq!(priority, &10);
+                assert_eq!(weight, &60);
+                assert_eq!(port, &5060);
+                assert_eq!(target, "sipserver.example.com");
             }
-            _ => panic!("Expected A record"),
+            other => panic!("Expected SRV record, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_edns_roundtrip() {
+        let mut message = Message::new();
+        message.set_id(3838);
+        message.set_query(true);
+        message.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+        // one option TLV: code 10 (cookie), 8 bytes of value
+        let options = [0x00, 0x0a, 0x00, 0x08, 1, 2, 3, 4, 5, 6, 7, 8];
+        message.add_additional(ResourceRecord::new(
+            ".",
+            RecordType::OPT,
+            RecordClass::from_u16(1232),
+            0,
+            crate::dns::RData::OPT {
+                extended_rcode: 0,
+                version: 0,
+                flags: 0x8000,
+                options: options.to_vec(),
+            },
+        ));
+
+        let wire_data = serialize_message(&message).unwrap();
+        let parsed = parse_message(&wire_data).unwrap();
+
+        let opt = parsed
+            .additional()
+            .iter()
+            .find(|rr| rr.rtype() == RecordType::OPT)
+            .expect("OPT record lost in round trip");
+        assert_eq!(opt.rclass(), RecordClass::from_u16(1232));
+        match opt.rdata() {
+            crate::dns::RData::OPT { flags, options, .. } => {
+                assert_eq!(*flags & 0x8000, 0x8000, "DO bit lost");
+                assert_eq!(options.as_slice(), &options[..]);
+            }
+            other => panic!("Expected OPT record, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_edns_extended_rcode() {
+        // rcode 99 = low 3 (header) + high 6 (OPT extended rcode)
+        let mut message = Message::new();
+        message.set_id(3940);
+        message.set_response(true);
+        message.set_response_code(crate::dns::ResponseCode::Unknown(99));
+        message.add_additional(ResourceRecord::new(
+            ".",
+            RecordType::OPT,
+            RecordClass::from_u16(1232),
+            0,
+            crate::dns::RData::OPT {
+                extended_rcode: 6,
+                version: 0,
+                flags: 0,
+                options: Vec::new(),
+            },
+        ));
+
+        let wire_data = serialize_message(&message).unwrap();
+        let parsed = parse_message(&wire_data).unwrap();
+
+        assert_eq!(
+            parsed.response_code(),
+            crate::dns::ResponseCode::Unknown(99)
+        );
+    }
+
+    #[test]
+    fn test_unknown_type_parsed_as_raw() {
+        // build wire bytes with a type hickory does not model
+        use hickory_proto::op::Message as HickoryMessage;
+        use hickory_proto::rr::rdata::NULL;
+        use hickory_proto::rr::{
+            Name, RData as HickoryRData, Record, RecordType as HickRecordType,
+        };
+        use hickory_proto::serialize::binary::{BinEncodable, BinEncoder};
+
+        let mut hickory_msg = HickoryMessage::new();
+        hickory_msg.set_id(3939);
+        hickory_msg.set_message_type(hickory_proto::op::MessageType::Response);
+        let mut record = Record::new();
+        record.set_name(Name::from_utf8("example.com").unwrap());
+        record.set_record_type(HickRecordType::from(65001u16));
+        record.set_ttl(300);
+        record.set_data(Some(HickoryRData::Unknown {
+            code: HickRecordType::from(65001u16),
+            rdata: NULL::with(vec![0xaa, 0xbb, 0xcc]),
+        }));
+        hickory_msg.add_answer(record);
+
+        let mut wire = Vec::new();
+        let mut enc = BinEncoder::new(&mut wire);
+        hickory_msg.emit(&mut enc).unwrap();
+
+        let parsed = parse_message(&wire).unwrap();
+        assert_eq!(parsed.answer_count(), 1);
+        let rr = &parsed.answers()[0];
+        assert_eq!(rr.rtype(), RecordType::Unknown(65001));
+        assert_eq!(
+            rr.rdata(),
+            &crate::dns::RData::Unknown(vec![0xaa, 0xbb, 0xcc])
+        );
     }
 
     #[test]

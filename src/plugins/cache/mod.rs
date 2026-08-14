@@ -138,7 +138,10 @@ pub struct CachePlugin {
     /// Seconds between periodic dumps (default 600).
     dump_interval_secs: u64,
     /// Writes since last dump; triggers dump when it exceeds threshold.
-    changes_since_dump: AtomicU64,
+    /// Shared via Arc so the background task (a clone) sees live updates.
+    changes_since_dump: Arc<AtomicU64>,
+    /// Unix seconds of the last successful dump; 0 = never.
+    last_dump_unix: Arc<AtomicU64>,
 }
 
 impl Clone for CachePlugin {
@@ -161,7 +164,8 @@ impl Clone for CachePlugin {
             cleanup_pressure_threshold: self.cleanup_pressure_threshold,
             dump_file: self.dump_file.clone(),
             dump_interval_secs: self.dump_interval_secs,
-            changes_since_dump: AtomicU64::new(self.changes_since_dump.load(Ordering::Relaxed)),
+            changes_since_dump: Arc::clone(&self.changes_since_dump),
+            last_dump_unix: Arc::clone(&self.last_dump_unix),
         }
     }
 }
@@ -200,7 +204,8 @@ impl CachePlugin {
             cleanup_pressure_threshold: 0.8,
             dump_file: None,
             dump_interval_secs: 600,
-            changes_since_dump: AtomicU64::new(0),
+            changes_since_dump: Arc::new(AtomicU64::new(0)),
+            last_dump_unix: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -482,10 +487,56 @@ impl CachePlugin {
                 Ok(()) => {
                     debug!(entries = entries.len(), path = %path.display(), "cache dumped");
                     self.changes_since_dump.store(0, Ordering::Relaxed);
+                    self.last_dump_unix.store(unix_now(), Ordering::Relaxed);
                 }
                 Err(e) => {
                     warn!(error = %e, "failed to dump cache");
                 }
+            }
+        }
+    }
+
+    /// Whether the configured dump interval has elapsed since the last dump.
+    fn dump_interval_elapsed(&self) -> bool {
+        let last = self.last_dump_unix.load(Ordering::Relaxed);
+        last == 0 || unix_now().saturating_sub(last) >= self.dump_interval_secs
+    }
+
+    /// Load a previous dump file into the cache. Entries whose original TTL
+    /// has burned down while the server was down are skipped.
+    fn restore_from_dump(&mut self) {
+        let Some(ref path) = self.dump_file else {
+            return;
+        };
+        match persistence::load_cache(path) {
+            Ok(loaded) => {
+                let now = unix_now();
+                let mut count = 0;
+                let mut c = self.cache.write();
+                for entry in loaded {
+                    let elapsed = now.saturating_sub(entry.cached_at_unix);
+                    let remaining = entry.original_ttl.saturating_sub(elapsed as u32);
+                    if remaining == 0 {
+                        continue;
+                    }
+
+                    let cache_entry = CacheEntry {
+                        response: Arc::new(entry.response),
+                        cached_at: Instant::now(),
+                        ttl: remaining,
+                        // is_cache_expired treats 0 as already expired
+                        cache_ttl: remaining,
+                        original_ttl: entry.original_ttl,
+                        last_accessed: Instant::now(),
+                        cached_at_unix: entry.cached_at_unix,
+                    };
+                    c.push(entry.key, cache_entry);
+                    count += 1;
+                }
+                debug!(loaded = count, "restored cache entries from dump");
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to load cache dump");
             }
         }
     }
@@ -758,6 +809,13 @@ impl CachePlugin {
     }
 }
 
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 impl fmt::Debug for CachePlugin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CachePlugin")
@@ -790,10 +848,13 @@ impl BackgroundTask for CachePlugin {
             );
         }
 
-        if self.dump_file.is_some()
-            && self.changes_since_dump.load(Ordering::Relaxed) >= persistence::dump_threshold()
-        {
-            self.dump_to_file();
+        if self.dump_file.is_some() {
+            let changes = self.changes_since_dump.load(Ordering::Relaxed);
+            if changes > 0
+                && (changes >= persistence::dump_threshold() || self.dump_interval_elapsed())
+            {
+                self.dump_to_file();
+            }
         }
     }
 
@@ -943,43 +1004,7 @@ impl Plugin for CachePlugin {
                 cache.dump_interval_secs = n.as_u64().unwrap_or(600);
             }
 
-            // Load existing dump into the cache.
-            if let Some(ref path) = cache.dump_file {
-                match persistence::load_cache(path) {
-                    Ok(loaded) => {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
-
-                        let mut count = 0;
-                        let mut c = cache.cache.write();
-                        for entry in loaded {
-                            let elapsed = now.saturating_sub(entry.cached_at_unix);
-                            let remaining = entry.original_ttl.saturating_sub(elapsed as u32);
-                            if remaining == 0 {
-                                continue;
-                            }
-
-                            let cache_entry = CacheEntry {
-                                response: std::sync::Arc::new(entry.response),
-                                cached_at: Instant::now(),
-                                ttl: remaining,
-                                cache_ttl: 0,
-                                original_ttl: entry.original_ttl,
-                                last_accessed: Instant::now(),
-                                cached_at_unix: entry.cached_at_unix,
-                            };
-                            c.push(entry.key, cache_entry);
-                            count += 1;
-                        }
-                        debug!(loaded = count, "restored cache entries from dump");
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "failed to load cache dump");
-                    }
-                }
-            }
+            cache.restore_from_dump();
         }
 
         // Set tag from config
@@ -1487,6 +1512,42 @@ plugins:
         assert_eq!(removed, 2); // key1 and key2 should be removed
         assert_eq!(cache.size(), 1); // Only key3 remains
         assert_eq!(cache.stats().expirations(), 2); // Stats updated
+    }
+
+    #[test]
+    fn test_dump_counter_shared_with_clone() {
+        // the background task runs on a clone; increments on the original
+        // must be visible there or periodic dumps never fire
+        let cache = CachePlugin::new(100);
+        let bg = cache.clone();
+        cache.changes_since_dump.fetch_add(3, Ordering::Relaxed);
+        assert_eq!(bg.changes_since_dump.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn test_dump_and_restore() {
+        let file =
+            std::env::temp_dir().join(format!("lazydns_cache_test_{}.bin", std::process::id()));
+
+        let mut src = CachePlugin::new(100);
+        src.dump_file = Some(file.clone());
+        src.cache.write().push(
+            "example.com".to_string(),
+            CacheEntry::new(create_test_response(), 300, 300),
+        );
+        src.dump_to_file();
+
+        let mut restored = CachePlugin::new(100);
+        restored.dump_file = Some(file.clone());
+        restored.restore_from_dump();
+
+        let cache = restored.cache.read();
+        let entry = cache.peek("example.com").expect("entry not restored");
+        assert!(!entry.is_cache_expired(), "restored entry must be servable");
+        assert!(entry.remaining_ttl() > 0);
+        drop(cache);
+
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]

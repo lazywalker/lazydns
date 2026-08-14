@@ -360,12 +360,19 @@ impl ServerLauncher {
         let entry = self.get_entry(&args);
         let handler = self.create_handler(entry);
         let doh_path = args.get("path").and_then(|v| v.as_str()).map(String::from);
+        // xff only on explicit opt-in: the header is spoofable by direct
+        // clients (ACL/rate-limit bypass)
+        let trust_forwarded_for = args
+            .get("trust_forwarded_for")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let config = ServerConfig {
             tcp_addr: Some(addr),
             handler: Some(handler),
             tls_config: Some(tls),
             doh_path,
+            trust_forwarded_for,
             cert_path: Some(cert_path.to_string()),
             key_path: Some(key_path.to_string()),
             ..Default::default()

@@ -55,6 +55,15 @@ pub struct DohServer {
     handler: Arc<dyn RequestHandler>,
     /// DoH path (default: /dns-query)
     path: String,
+    /// Honor `X-Forwarded-For` from a trusted reverse proxy (default: false)
+    trust_forwarded_for: bool,
+}
+
+/// Per-server state shared with the axum handlers.
+#[derive(Clone)]
+struct DohAppState {
+    handler: Arc<dyn RequestHandler>,
+    trust_forwarded_for: bool,
 }
 
 impl DohServer {
@@ -90,6 +99,7 @@ impl DohServer {
             _tls_config: tls_config,
             handler,
             path: "/dns-query".to_string(),
+            trust_forwarded_for: false,
         }
     }
 
@@ -99,17 +109,27 @@ impl DohServer {
         self
     }
 
+    /// Set whether to honor `X-Forwarded-For` (only safe behind a trusted
+    /// reverse proxy)
+    pub fn with_trust_forwarded_for(mut self, trust: bool) -> Self {
+        self.trust_forwarded_for = trust;
+        self
+    }
+
     /// Start the DoH server.
     ///
     /// Listens for HTTPS connections and processes DNS queries over HTTP/2.
     /// Uses axum-server; not tuned for high-throughput production frontends.
     pub async fn run(self) -> Result<()> {
-        let handler = Arc::clone(&self.handler);
+        let state = DohAppState {
+            handler: Arc::clone(&self.handler),
+            trust_forwarded_for: self.trust_forwarded_for,
+        };
 
         // Create router with ConnectInfo support for client address tracking
         let app = Router::new()
             .route(&self.path, post(handle_post_query).get(handle_get_query))
-            .with_state(handler)
+            .with_state(state)
             .into_make_service_with_connect_info::<SocketAddr>();
 
         info!(
@@ -186,6 +206,7 @@ impl Server for DohServer {
         if let Some(path) = config.doh_path {
             server = server.with_path(path);
         }
+        server = server.with_trust_forwarded_for(config.trust_forwarded_for);
         Ok(server)
     }
 
@@ -194,27 +215,27 @@ impl Server for DohServer {
     }
 }
 
-/// Extract client address from DoH HTTP request
+/// Extract client address from DoH HTTP request.
 ///
-/// First tries to get the real client IP from X-Forwarded-For header (for proxied requests),
-/// then falls back to the direct connection address from ConnectInfo.
+/// `X-Forwarded-For` is honored only when `trust_forwarded_for` is set: on a
+/// direct connection the header is attacker-controlled and would allow
+/// ACL/rate-limit bypass via a spoofed client IP.
 fn extract_client_addr(
     headers: &HeaderMap,
     connect_addr: Option<SocketAddr>,
+    trust_forwarded_for: bool,
 ) -> Option<SocketAddr> {
-    // Try X-Forwarded-For header (for proxied requests)
-    if let Some(forwarded) = headers
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .and_then(|ip_str| ip_str.trim().parse::<std::net::IpAddr>().ok())
+    if trust_forwarded_for
+        && let Some(forwarded) = headers
+            .get("x-forwarded-for")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.split(',').next())
+            .and_then(|ip_str| ip_str.trim().parse::<std::net::IpAddr>().ok())
     {
-        // Use port from connect_addr if available, otherwise use port 443 (default HTTPS)
         let port = connect_addr.map(|a| a.port()).unwrap_or(443);
         return Some(SocketAddr::new(forwarded, port));
     }
 
-    // Fall back to direct connection address
     connect_addr
 }
 
@@ -233,7 +254,7 @@ fn extract_client_addr(
 /// takes the `State` and `Query` extracts. It returns an `axum::Response`
 /// so it can map directly to HTTP status codes and body bytes.
 async fn handle_get_query(
-    State(handler): State<Arc<dyn RequestHandler>>,
+    State(state): State<DohAppState>,
     ConnectInfo(connect_addr): ConnectInfo<SocketAddr>,
     AxumQuery(params): AxumQuery<HashMap<String, String>>,
     headers: HeaderMap,
@@ -242,7 +263,7 @@ async fn handle_get_query(
     debug!("Handling DoH GET request");
 
     // Extract client address
-    let client_addr = extract_client_addr(&headers, Some(connect_addr));
+    let client_addr = extract_client_addr(&headers, Some(connect_addr), state.trust_forwarded_for);
 
     // Extract the 'dns' parameter
     let dns_param = match params.get("dns") {
@@ -300,7 +321,7 @@ async fn handle_get_query(
     );
 
     // Process query
-    let response = match handler.handle(ctx).await {
+    let response = match state.handler.handle(ctx).await {
         Ok(resp) => resp,
         Err(e) => {
             return (
@@ -350,7 +371,7 @@ async fn handle_get_query(
 /// Like `handle_get_query`, this function is an `axum` handler and returns
 /// an `axum::Response`.
 async fn handle_post_query(
-    State(handler): State<Arc<dyn RequestHandler>>,
+    State(state): State<DohAppState>,
     ConnectInfo(connect_addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     body: Bytes,
@@ -358,7 +379,7 @@ async fn handle_post_query(
     debug!("Handling DoH POST request");
 
     // Extract client address
-    let client_addr = extract_client_addr(&headers, Some(connect_addr));
+    let client_addr = extract_client_addr(&headers, Some(connect_addr), state.trust_forwarded_for);
     // Verify content type
     if let Some(content_type) = headers.get(header::CONTENT_TYPE) {
         if content_type != "application/dns-message" {
@@ -404,7 +425,7 @@ async fn handle_post_query(
     );
 
     // Process query
-    let response = match handler.handle(ctx).await {
+    let response = match state.handler.handle(ctx).await {
         Ok(resp) => {
             debug!("DoH POST handler processed query successfully");
             resp
@@ -468,6 +489,16 @@ mod tests {
 
     struct TestHandler;
 
+    fn test_state(
+        handler: Arc<dyn RequestHandler>,
+        trust_forwarded_for: bool,
+    ) -> State<DohAppState> {
+        State(DohAppState {
+            handler,
+            trust_forwarded_for,
+        })
+    }
+
     #[async_trait]
     impl RequestHandler for TestHandler {
         async fn handle(&self, ctx: RequestContext) -> crate::Result<Message> {
@@ -529,7 +560,7 @@ mod tests {
 
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp = handle_get_query(
-            State(Arc::new(TestHandler)),
+            test_state(Arc::new(TestHandler), false),
             ConnectInfo(connect_addr),
             AxumQuery(params),
             HeaderMap::new(),
@@ -560,7 +591,7 @@ mod tests {
 
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp = handle_post_query(
-            State(Arc::new(TestHandler)),
+            test_state(Arc::new(TestHandler), false),
             ConnectInfo(connect_addr),
             headers,
             AxumBytes::from(data.clone()),
@@ -588,7 +619,7 @@ mod tests {
         let headers = HeaderMap::new();
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp = handle_post_query(
-            State(Arc::new(TestHandler)),
+            test_state(Arc::new(TestHandler), false),
             ConnectInfo(connect_addr),
             headers,
             AxumBytes::from(data),
@@ -608,7 +639,7 @@ mod tests {
         headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp = handle_post_query(
-            State(Arc::new(TestHandler)),
+            test_state(Arc::new(TestHandler), false),
             ConnectInfo(connect_addr),
             headers,
             AxumBytes::from(data),
@@ -626,12 +657,73 @@ mod tests {
         }
     }
 
+    /// Records the client address each invocation saw.
+    struct ClientCaptureHandler(std::sync::Mutex<Option<SocketAddr>>);
+
+    #[async_trait]
+    impl RequestHandler for ClientCaptureHandler {
+        async fn handle(&self, ctx: RequestContext) -> crate::Result<Message> {
+            *self.0.lock().unwrap() = ctx.client_addr().copied();
+            let mut request = ctx.into_message();
+            request.set_response(true);
+            Ok(request)
+        }
+    }
+
+    fn dns_query_param() -> HashMap<String, String> {
+        let mut req = Message::new();
+        req.set_id(0x4321);
+        req.set_query(true);
+        let data = crate::dns::wire::serialize_message(&req).unwrap();
+        let mut params = HashMap::new();
+        params.insert("dns".to_string(), URL_SAFE_NO_PAD.encode(&data));
+        params
+    }
+
+    #[tokio::test]
+    async fn test_xff_ignored_by_default() {
+        let captured = Arc::new(ClientCaptureHandler(std::sync::Mutex::new(None)));
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "8.8.8.8".parse().unwrap());
+
+        let connect_addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        handle_get_query(
+            test_state(Arc::clone(&captured) as Arc<dyn RequestHandler>, false),
+            ConnectInfo(connect_addr),
+            AxumQuery(dns_query_param()),
+            headers,
+        )
+        .await;
+
+        assert_eq!(*captured.0.lock().unwrap(), Some(connect_addr));
+    }
+
+    #[tokio::test]
+    async fn test_xff_honored_when_trusted() {
+        let captured = Arc::new(ClientCaptureHandler(std::sync::Mutex::new(None)));
+        // multiple hops: first entry is the client
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "8.8.8.8, 10.0.0.1".parse().unwrap());
+
+        let connect_addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        handle_get_query(
+            test_state(Arc::clone(&captured) as Arc<dyn RequestHandler>, true),
+            ConnectInfo(connect_addr),
+            AxumQuery(dns_query_param()),
+            headers,
+        )
+        .await;
+
+        let seen = captured.0.lock().unwrap();
+        assert_eq!(seen.map(|a| a.ip()).unwrap().to_string(), "8.8.8.8");
+    }
+
     #[tokio::test]
     async fn test_handle_get_query_missing_param() {
         let params: HashMap<String, String> = HashMap::new();
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp = handle_get_query(
-            State(Arc::new(TestHandler)),
+            test_state(Arc::new(TestHandler), false),
             ConnectInfo(connect_addr),
             AxumQuery(params),
             HeaderMap::new(),
@@ -646,7 +738,7 @@ mod tests {
         params.insert("dns".to_string(), "!!not_base64!!".to_string());
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp = handle_get_query(
-            State(Arc::new(TestHandler)),
+            test_state(Arc::new(TestHandler), false),
             ConnectInfo(connect_addr),
             AxumQuery(params),
             HeaderMap::new(),
@@ -663,7 +755,7 @@ mod tests {
         params.insert("dns".to_string(), encoded);
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp = handle_get_query(
-            State(Arc::new(TestHandler)),
+            test_state(Arc::new(TestHandler), false),
             ConnectInfo(connect_addr),
             AxumQuery(params),
             HeaderMap::new(),
@@ -685,7 +777,7 @@ mod tests {
 
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp_get = handle_get_query(
-            State(Arc::new(TestHandlerErr)),
+            test_state(Arc::new(TestHandlerErr), false),
             ConnectInfo(connect_addr),
             AxumQuery(params.clone()),
             HeaderMap::new(),
@@ -698,7 +790,7 @@ mod tests {
         headers.insert(CONTENT_TYPE, "application/dns-message".parse().unwrap());
         let connect_addr = "127.0.0.1:12345".parse().unwrap();
         let resp_post = handle_post_query(
-            State(Arc::new(TestHandlerErr)),
+            test_state(Arc::new(TestHandlerErr), false),
             ConnectInfo(connect_addr),
             headers,
             AxumBytes::from(data),
