@@ -24,27 +24,34 @@ use std::sync::Arc;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::RwLock;
 use tokio::time::{Duration, timeout};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 // Command-line arguments are parsed in `src/cli.rs` using `pico-args`.
 
+#[allow(unreachable_code)] // unix loop returns from inside
 async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sighup = signal(SignalKind::hangup())?;
 
-        tokio::select! {
-            res = tokio::signal::ctrl_c() => {
-                info!("Received Ctrl-C signal");
-                res?;
-            },
-            _ = sigterm.recv() => {
-                info!("Received SIGTERM signal");
-            },
-            _ = sighup.recv() => {
-                info!("Received SIGHUP signal");
-            },
+        loop {
+            tokio::select! {
+                res = tokio::signal::ctrl_c() => {
+                    info!("Received Ctrl-C signal");
+                    res?;
+                    return Ok(());
+                },
+                _ = sigterm.recv() => {
+                    info!("Received SIGTERM signal");
+                    return Ok(());
+                },
+                _ = sighup.recv() => {
+                    // conventional reload signal; hot reload is not
+                    // supported, so keep serving instead of dying
+                    info!("Received SIGHUP signal, ignored (hot reload not supported)");
+                },
+            }
         }
     }
 
@@ -187,11 +194,18 @@ async fn main() -> anyhow::Result<()> {
 
     info!("lazydns initialized successfully");
 
-    // Wait for shutdown signal (Ctrl-C, SIGTERM, SIGHUP)
+    // Wait for shutdown signal (Ctrl-C, SIGTERM)
     if let Err(e) = wait_for_shutdown_signal().await {
         error!("Error waiting for shutdown signal: {}", e);
     }
     info!("Shutdown signal received, beginning graceful shutdown...");
+
+    // Stop listeners first so no new queries arrive, then let in-flight
+    // requests drain before plugins shut down.
+    launcher.trigger_shutdown();
+    if !launcher.wait_for_servers(Duration::from_secs(10)).await {
+        warn!("Servers did not stop within 10s, aborting remaining tasks");
+    }
 
     // Shutdown all plugins that implement the Shutdown trait, with timeout
     match timeout(Duration::from_secs(30), builder.shutdown_all()).await {
@@ -199,8 +213,6 @@ async fn main() -> anyhow::Result<()> {
         Ok(Err(e)) => error!("Error during plugin shutdown: {}", e),
         Err(_) => error!("Shutdown timed out after 30s"),
     }
-
-    // Monitoring server listens to OS signals itself for graceful shutdown.
 
     info!("lazydns exited normally");
 

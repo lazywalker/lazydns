@@ -41,6 +41,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, info, trace};
 
 /// DNS over HTTPS server
@@ -57,6 +58,8 @@ pub struct DohServer {
     path: String,
     /// Honor `X-Forwarded-For` from a trusted reverse proxy (default: false)
     trust_forwarded_for: bool,
+    /// Shared shutdown bus
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 /// Per-server state shared with the axum handlers.
@@ -100,6 +103,7 @@ impl DohServer {
             handler,
             path: "/dns-query".to_string(),
             trust_forwarded_for: false,
+            shutdown_rx: tokio::sync::watch::channel(false).1,
         }
     }
 
@@ -113,6 +117,12 @@ impl DohServer {
     /// reverse proxy)
     pub fn with_trust_forwarded_for(mut self, trust: bool) -> Self {
         self.trust_forwarded_for = trust;
+        self
+    }
+
+    /// Attach the launcher-wide shutdown bus.
+    pub fn with_shutdown_rx(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.shutdown_rx = shutdown_rx;
         self
     }
 
@@ -137,6 +147,8 @@ impl DohServer {
             self.addr, self.path
         );
 
+        let shutdown = self.shutdown_rx.clone();
+
         // If compiled with `--features doh`, run axum-server with Rustls.
         // This enables proper TLS termination and HTTP/2 for DoH.
         #[cfg(feature = "doh")]
@@ -158,7 +170,18 @@ impl DohServer {
                 .parse()
                 .map_err(|e| Error::Config(format!("Invalid bind address: {}", e)))?;
 
+            // axum-server drives graceful shutdown through a Handle
+            let handle = axum_server::Handle::new();
+            let shutdown_handle = handle.clone();
+            let shutdown = shutdown.clone();
+            tokio::spawn(async move {
+                crate::server::common::await_shutdown(&shutdown).await;
+                info!("DoH server shutting down");
+                shutdown_handle.graceful_shutdown(Some(Duration::from_secs(10)));
+            });
+
             axum_bind_rustls(bind_addr, axum_tls)
+                .handle(handle)
                 .serve(app)
                 .await
                 .map_err(|e| Error::Other(format!("Server error: {}", e)))?;
@@ -177,7 +200,12 @@ impl DohServer {
                 .map_err(Error::Io)?;
 
             // Serve without TLS
+            let shutdown = shutdown.clone();
             axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    crate::server::common::await_shutdown(&shutdown).await;
+                    info!("DoH server shutting down");
+                })
                 .await
                 .map_err(|e| Error::Other(format!("Server error: {}", e)))?;
         }
@@ -207,6 +235,7 @@ impl Server for DohServer {
             server = server.with_path(path);
         }
         server = server.with_trust_forwarded_for(config.trust_forwarded_for);
+        server = server.with_shutdown_rx(config.shutdown_rx);
         Ok(server)
     }
 

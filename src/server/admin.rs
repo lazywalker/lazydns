@@ -312,7 +312,7 @@ impl AdminServer {
     pub async fn run_with_signal(
         self,
         startup_tx: Option<tokio::sync::oneshot::Sender<()>>,
-        mut shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
+        shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> Result<(), std::io::Error> {
         let app = Router::new()
             .route("/api/cache/control", post(cache_control))
@@ -333,19 +333,28 @@ impl AdminServer {
         // provided we await it. Otherwise, listen to OS signals so the admin
         // server can shut itself down similarly to the monitoring server.
         let shutdown_fut = async move {
-            if let Some(rx) = shutdown_rx.as_mut() {
-                let _ = rx.await;
+            if let Some(rx) = shutdown_rx {
+                crate::server::common::await_shutdown(&rx).await;
             } else {
                 #[cfg(unix)]
                 {
                     use tokio::signal::unix::{SignalKind, signal};
-                    let mut sigterm = signal(SignalKind::terminate()).unwrap();
-                    let mut sighup = signal(SignalKind::hangup()).unwrap();
-
-                    tokio::select! {
-                        _ = tokio::signal::ctrl_c() => {},
-                        _ = sigterm.recv() => {},
-                        _ = sighup.recv() => {},
+                    // restricted runtimes cannot install signal handlers;
+                    // fall back to ctrl_c alone instead of panicking
+                    match (
+                        signal(SignalKind::terminate()),
+                        signal(SignalKind::hangup()),
+                    ) {
+                        (Ok(mut sigterm), Ok(mut sighup)) => {
+                            tokio::select! {
+                                _ = tokio::signal::ctrl_c() => {},
+                                _ = sigterm.recv() => {},
+                                _ = sighup.recv() => {},
+                            }
+                        }
+                        _ => {
+                            let _ = tokio::signal::ctrl_c().await;
+                        }
                     }
                 }
 
