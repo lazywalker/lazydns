@@ -220,9 +220,6 @@ impl ForwardPlugin {
 
                     last_error = Some(e);
                     attempts += 1;
-                    if !self.core.health_checks_enabled {
-                        break;
-                    }
                 }
             }
         }
@@ -434,6 +431,52 @@ mod tests {
             })
             .expect("an A record answer");
         assert_eq!(answer.to_string(), "9.9.9.9");
+    }
+
+    #[tokio::test]
+    async fn test_sequential_failover_without_health_checks() {
+        // health checks off (the default): a dead first upstream must not
+        // stop the backup upstream from being tried
+        let black_hole = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dead = black_hole.local_addr().unwrap().to_string();
+        tokio::spawn(async move {
+            // swallow queries forever
+            let mut buf = vec![0u8; 4096];
+            loop {
+                if black_hole.recv_from(&mut buf).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let alive = spawn_udp_upstream("9.9.9.9", None).await;
+        let core = Forward::new(
+            vec![Upstream::new(dead), Upstream::new(alive)],
+            Duration::from_millis(300),
+            LoadBalanceStrategy::RoundRobin,
+        );
+        let plugin = ForwardPlugin {
+            core,
+            current: AtomicUsize::new(0),
+            concurrent_queries: false,
+            tag: None,
+        };
+
+        let mut req = Message::new();
+        req.set_id(0x4242);
+        req.add_question(Question::new(
+            "failover.example.com",
+            RecordType::A,
+            RecordClass::IN,
+        ));
+
+        let mut ctx = Context::new(req);
+        plugin
+            .execute(&mut ctx)
+            .await
+            .expect("backup upstream should answer");
+        let response = ctx.response().expect("response set");
+        assert_eq!(response.id(), 0x4242);
     }
 
     #[tokio::test]
