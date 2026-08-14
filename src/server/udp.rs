@@ -4,12 +4,17 @@
 //! Buffer sizes and max concurrency are configurable via [`ServerConfig`].
 
 use crate::dns::Message;
+use crate::dns::types::{RecordClass, RecordType};
 use crate::server::{RequestHandler, Server, ServerConfig};
 use crate::{Error, Result};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, trace, warn};
+
+/// Floor for the read buffer: queries can legally exceed the 512-byte
+/// classic limit once EDNS is in play.
+const RECV_BUF_MIN: usize = 4096;
 
 /// UDP DNS server.
 ///
@@ -199,7 +204,7 @@ impl UdpServer {
     ///
     /// This method does not panic under normal circumstances.
     pub async fn run(&self) -> Result<()> {
-        let mut buf = vec![0u8; self.config.max_udp_size];
+        let mut buf = vec![0u8; self.config.max_udp_size.max(RECV_BUF_MIN)];
 
         info!("UDP server started");
 
@@ -266,6 +271,7 @@ impl UdpServer {
 
         // Create request context
         let req_id = request.id();
+        let max_response = client_udp_limit(&request);
         let ctx = crate::server::RequestContext::with_client(
             request,
             Some(peer_addr),
@@ -285,6 +291,7 @@ impl UdpServer {
 
         // Serialize and send response
         let response_data = Self::serialize_response(&response)?;
+        let response_data = fit_udp_response(&response, response_data, max_response);
 
         socket
             .send_to(&response_data, peer_addr)
@@ -304,10 +311,53 @@ impl UdpServer {
 
     /// Serialize DNS response to wire format.
     ///
-    /// Thin wrapper over [`crate::dns::wire::serialize_message`]; returns an error
-    /// on invalid names/labels or messages exceeding the UDP size limit.
+    /// Thin wrapper over [`crate::dns::wire::serialize_message`]; returns an
+    /// error on invalid names/labels.
     fn serialize_response(message: &Message) -> Result<Vec<u8>> {
         crate::dns::wire::serialize_message(message)
+    }
+}
+
+/// Response size limit for `request`: the client's advertised EDNS payload
+/// size, or the classic 512-byte limit without EDNS. Sizes below 512 are
+/// ignored (RFC 6891).
+fn client_udp_limit(request: &Message) -> usize {
+    request
+        .additional()
+        .iter()
+        .find(|rr| rr.rtype() == RecordType::OPT)
+        .and_then(|rr| match rr.rclass() {
+            RecordClass::Unknown(size) if size >= 512 => Some(size as usize),
+            _ => None,
+        })
+        .unwrap_or(512)
+}
+
+/// Send `serialized` as-is while it fits; past the limit, fall back to a
+/// TC=1 header plus question section so the client retries over TCP.
+fn fit_udp_response(response: &Message, serialized: Vec<u8>, limit: usize) -> Vec<u8> {
+    if serialized.len() <= limit {
+        return serialized;
+    }
+
+    let mut truncated = response.clone();
+    truncated.set_truncated(true);
+    truncated.answers_mut().clear();
+    truncated.authority_mut().clear();
+    truncated.additional_mut().clear();
+    match crate::dns::wire::serialize_message(&truncated) {
+        Ok(data) => {
+            debug!(
+                limit,
+                full_len = serialized.len(),
+                truncated_len = data.len(),
+                "response exceeds UDP limit, sending TC=1"
+            );
+            data
+        }
+        // cannot happen for a message that just serialized, but never
+        // fail to answer over a truncation fallback
+        Err(_) => serialized,
     }
 }
 
@@ -451,5 +501,84 @@ mod tests {
         assert_eq!(parsed.id(), 0x1234);
         assert!(parsed.is_response());
         assert!(parsed.recursion_available());
+    }
+
+    #[test]
+    fn test_client_udp_limit() {
+        let mut req = Message::new();
+        req.set_query(true);
+        req.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+
+        // no EDNS: classic 512-byte limit
+        assert_eq!(client_udp_limit(&req), 512);
+
+        req.add_additional(crate::dns::ResourceRecord::new(
+            ".",
+            RecordType::OPT,
+            RecordClass::from_u16(1232),
+            0,
+            crate::dns::RData::OPT {
+                extended_rcode: 0,
+                version: 0,
+                flags: 0,
+                options: Vec::new(),
+            },
+        ));
+        assert_eq!(client_udp_limit(&req), 1232);
+
+        // sizes below 512 are invalid per RFC 6891 and must not shrink the limit
+        let mut tiny = Message::new();
+        tiny.add_question(Question::new("example.com", RecordType::A, RecordClass::IN));
+        tiny.add_additional(crate::dns::ResourceRecord::new(
+            ".",
+            RecordType::OPT,
+            RecordClass::from_u16(100),
+            0,
+            crate::dns::RData::OPT {
+                extended_rcode: 0,
+                version: 0,
+                flags: 0,
+                options: Vec::new(),
+            },
+        ));
+        assert_eq!(client_udp_limit(&tiny), 512);
+    }
+
+    #[test]
+    fn test_fit_udp_response_truncates() {
+        let mut resp = Message::new();
+        resp.set_id(0x77);
+        resp.set_response(true);
+        resp.add_question(Question::new(
+            "big.example.com",
+            RecordType::A,
+            RecordClass::IN,
+        ));
+        for i in 0..40 {
+            resp.add_answer(crate::dns::ResourceRecord::new(
+                "big.example.com",
+                RecordType::A,
+                RecordClass::IN,
+                300,
+                crate::dns::RData::A(std::net::Ipv4Addr::new(192, 0, 2, i as u8)),
+            ));
+        }
+
+        let full = UdpServer::serialize_response(&resp).unwrap();
+        assert!(full.len() > 512);
+
+        let out = fit_udp_response(&resp, full.clone(), 512);
+        assert!(out.len() <= 512, "truncated response must fit the limit");
+        let parsed = wire::parse_message(&out).unwrap();
+        assert!(parsed.is_truncated(), "TC bit must be set");
+        assert_eq!(parsed.answer_count(), 0);
+
+        // a fitting message goes out untouched
+        let mut small = Message::new();
+        small.set_id(0x78);
+        small.set_response(true);
+        let small_data = UdpServer::serialize_response(&small).unwrap();
+        let same = fit_udp_response(&small, small_data.clone(), 512);
+        assert_eq!(same, small_data);
     }
 }
