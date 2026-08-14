@@ -172,14 +172,9 @@ fn validate_plugin_args(
 ) -> Result<()> {
     match plugin_type {
         "rate_limit" => {
-            validate_int_range::<u32>(args, "max_queries", MIN_RATE_LIMIT, MAX_RATE_LIMIT, false)?;
-            validate_int_range::<u64>(
-                args,
-                "window_secs",
-                MIN_WINDOW_SECS,
-                MAX_WINDOW_SECS,
-                false,
-            )?;
+            // both optional: the plugin defaults to 100 queries / 60s
+            validate_int_range::<u32>(args, "max_queries", MIN_RATE_LIMIT, MAX_RATE_LIMIT, true)?;
+            validate_int_range::<u64>(args, "window_secs", MIN_WINDOW_SECS, MAX_WINDOW_SECS, true)?;
         }
         "ttl" => {
             validate_int_range::<u32>(args, "ttl", 0, MAX_TTL, true)?;
@@ -380,6 +375,15 @@ mod tests {
         args.insert("max_queries".to_string(), Value::Number(100.into()));
         args.insert("window_secs".to_string(), Value::Number(60.into()));
 
+        assert!(validate_plugin_args("rate_limit", &args).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rate_limit_defaults() {
+        // plugin defaults to 100/60, so an empty args map must validate
+        use std::collections::HashMap;
+
+        let args: HashMap<String, Value> = HashMap::new();
         assert!(validate_plugin_args("rate_limit", &args).is_ok());
     }
 
