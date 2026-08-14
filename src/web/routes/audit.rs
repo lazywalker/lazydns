@@ -9,8 +9,20 @@ use axum::{
 use futures_util::stream::Stream;
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tracing::{debug, error, trace};
+
+/// Decrements the SSE connection counter when dropped. The stream generator
+/// is dropped at its yield point on client disconnect, so a trailing
+/// fetch_sub after the loop would never run.
+struct SseConnGuard(Arc<AtomicU64>);
+
+impl Drop for SseConnGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 /// GET /api/audit/query-logs/stream
 ///
@@ -22,13 +34,13 @@ pub async fn query_logs_stream(
     let sse_counter = state.sse_connections();
 
     let stream = async_stream::stream! {
-        sse_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        sse_counter.fetch_add(1, Ordering::Relaxed);
+        let _conn = SseConnGuard(Arc::clone(&sse_counter));
         debug!("SSE connection established for query logs");
 
         let bus = match event_bus() {
             Some(bus) => bus,
             None => {
-                sse_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 yield Ok(Event::default()
                     .event("error")
                     .data("Event bus not available"));
@@ -78,15 +90,10 @@ pub async fn query_logs_stream(
             }
         }
 
-        sse_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         debug!("SSE connection closed for query logs");
     };
 
-    Sse::new(stream).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(30))
-            .text("keepalive"),
-    )
+    Sse::new(stream)
 }
 
 /// GET /api/audit/security-events/stream
@@ -99,13 +106,13 @@ pub async fn security_events_stream(
     let sse_counter = state.sse_connections();
 
     let stream = async_stream::stream! {
-        sse_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        sse_counter.fetch_add(1, Ordering::Relaxed);
+        let _conn = SseConnGuard(Arc::clone(&sse_counter));
         debug!("SSE connection established for security events");
 
         let bus = match event_bus() {
             Some(bus) => bus,
             None => {
-                sse_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 yield Ok(Event::default()
                     .event("error")
                     .data("Event bus not available"));
@@ -155,13 +162,8 @@ pub async fn security_events_stream(
             }
         }
 
-        sse_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         debug!("SSE connection closed for security events");
     };
 
-    Sse::new(stream).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(30))
-            .text("keepalive"),
-    )
+    Sse::new(stream)
 }
