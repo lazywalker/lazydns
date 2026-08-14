@@ -191,12 +191,13 @@ impl Plugin for IpSetPlugin {
             // On Linux try to apply to system ipset; on other platforms just record metadata.
             #[cfg(target_os = "linux")]
             {
-                use std::process::Command;
+                use tokio::process::Command;
                 for (set_name, cidr) in &to_add {
                     // ipset add <set> <cidr> -exist
                     let status = Command::new("ipset")
                         .args(["add", set_name.as_str(), cidr.as_str(), "-exist"])
-                        .status();
+                        .status()
+                        .await;
                     match status {
                         Ok(s) if s.success() => {}
                         Ok(s) => {
