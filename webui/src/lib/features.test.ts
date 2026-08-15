@@ -1,6 +1,6 @@
 // Unit tests for features loading
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Mock the api module
 vi.mock('./api', () => ({
@@ -16,12 +16,21 @@ let loadServerFeatures: typeof import('./features.svelte').loadServerFeatures;
 let features: typeof import('./features.svelte').features;
 
 describe('loadServerFeatures', () => {
+    let errorLog: ReturnType<typeof vi.spyOn>;
+
     beforeEach(async () => {
         vi.clearAllMocks();
         vi.resetModules();
+        // several cases exercise the failure path on purpose; the module's
+        // console.error is expected output, not a test failure
+        errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
         const mod = await import('./features.svelte');
         loadServerFeatures = mod.loadServerFeatures;
         features = mod.features;
+    });
+
+    afterEach(() => {
+        errorLog.mockRestore();
     });
 
     it('should attempt to load features from API on first call', async () => {
