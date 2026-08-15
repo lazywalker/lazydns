@@ -64,52 +64,21 @@ impl PluginBuilder {
 
         let plugin: Arc<dyn Plugin> = match plugin_type.as_str() {
             "sequence" => {
-                // Handle different sequence formats
-                if let Value::Mapping(map) = &config.args {
-                    // Check if args contains "plugins" key (simple format)
-                    if let Some(plugins_value) = map.get(Value::String("plugins".to_string())) {
-                        if let Value::Sequence(plugin_names) = plugins_value {
-                            let plugins = Vec::new();
-                            for name_value in plugin_names {
-                                if let Value::String(_name) = name_value {
-                                    // We'll resolve plugin references in a second pass
-                                    // For now, store the name and resolve later
-                                    // This is a placeholder - actual resolution needs to be implemented
-                                    warn!(
-                                        "Sequence plugin with 'plugins' key not fully implemented yet"
-                                    );
-                                }
-                            }
-                            Arc::new(SequencePlugin::new(plugins))
-                        } else {
-                            return Err(Error::Config(
-                                "sequence 'plugins' must be an array".to_string(),
-                            ));
-                        }
-                    } else {
-                        // Other mapping formats - not implemented yet
-                        warn!(
-                            "Sequence plugin mapping format not implemented yet, using empty sequence"
-                        );
-                        Arc::new(SequencePlugin::new(Vec::new()))
-                    }
-                } else if let Value::Sequence(sequence) = &config.args {
-                    // Complex format - parse the steps
-                    match parse_sequence_steps(self, sequence) {
-                        Ok(steps) => Arc::new(SequencePlugin::with_steps(steps)),
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse complex sequence: {}, using empty sequence",
-                                e
-                            );
-                            Arc::new(SequencePlugin::new(Vec::new()))
-                        }
-                    }
-                } else {
-                    // Other formats
-                    warn!("Sequence plugin args format not recognized, using empty sequence");
-                    Arc::new(SequencePlugin::new(Vec::new()))
+                // Placeholder only: forward references are not resolvable
+                // yet, so resolve_references re-parses (and validates) every
+                // sequence once the registry is complete.
+                if let Value::Mapping(map) = &config.args
+                    && !map.contains_key("plugins")
+                {
+                    warn!(
+                        "sequence '{}' uses an unsupported mapping format",
+                        config.effective_name()
+                    );
                 }
+                Arc::new(SequencePlugin::with_steps_and_tag(
+                    Vec::new(),
+                    config.tag.clone(),
+                ))
             }
 
             // Server types are stubs here; the launcher starts the real servers.
@@ -136,53 +105,91 @@ impl PluginBuilder {
     /// (for example, `fallback` refers to other plugins by name).
     /// This also re-parses sequences to update plugin references after fallback resolution.
     pub fn resolve_references(&mut self, configs: &[PluginConfig]) -> Result<()> {
-        // First pass: update sequence plugins to reflect resolved plugins
+        // Pass 1: rebuild sequences now that the registry is complete.
         for config in configs {
-            if config.plugin_type == "sequence"
-                && let Value::Sequence(sequence) = &config.args
-            {
-                // Re-parse the steps with the now-resolved plugins
-                match parse_sequence_steps(self, sequence) {
-                    Ok(steps) => {
-                        // Preserve the configured tag when creating the resolved sequence
-                        let sequence_plugin = Arc::new(SequencePlugin::with_steps_and_tag(
-                            steps,
-                            config.tag.clone(),
-                        ));
-                        let name = config.effective_name().to_string();
-                        let dname = sequence_plugin.display_name().to_string();
-                        self.plugins.insert(name.clone(), sequence_plugin);
-                        trace!(
-                            "Updated sequence plugin '{}' with resolved references (display={})",
-                            name, dname
-                        );
+            if config.plugin_type.trim().to_lowercase() != "sequence" {
+                continue;
+            }
+            let name = config.effective_name().to_string();
+            match &config.args {
+                Value::Sequence(sequence) => {
+                    let steps = parse_sequence_steps(self, sequence)
+                        .map_err(|e| Error::Config(format!("sequence '{}': {}", name, e)))?;
+                    let sequence_plugin = Arc::new(SequencePlugin::with_steps_and_tag(
+                        steps,
+                        config.tag.clone(),
+                    ));
+                    let dname = sequence_plugin.display_name().to_string();
+                    self.plugins.insert(name.clone(), sequence_plugin);
+                    trace!(
+                        "Updated sequence plugin '{}' with resolved references (display={})",
+                        name, dname
+                    );
+                }
+                Value::Mapping(map) => {
+                    // simple format: `plugins: [name, name, ...]`
+                    let Some(Value::Sequence(names)) = map.get("plugins") else {
+                        return Err(Error::Config(format!(
+                            "sequence '{}': unsupported mapping args",
+                            name
+                        )));
+                    };
+                    let mut plugins = Vec::with_capacity(names.len());
+                    for name_value in names {
+                        let Value::String(child) = name_value else {
+                            return Err(Error::Config(format!(
+                                "sequence '{}': plugins entries must be strings",
+                                name
+                            )));
+                        };
+                        let plugin = self.get_plugin(child).ok_or_else(|| {
+                            Error::Config(format!(
+                                "sequence '{}' references unknown plugin '{}'",
+                                name, child
+                            ))
+                        })?;
+                        plugins.push(plugin);
                     }
-                    Err(e) => {
-                        warn!(
-                            "Failed to update sequence '{}': {}",
-                            config.effective_name(),
-                            e
-                        );
-                    }
+                    let sequence_plugin = Arc::new(SequencePlugin::with_steps_and_tag(
+                        plugins.into_iter().map(SequenceStep::Exec).collect(),
+                        config.tag.clone(),
+                    ));
+                    self.plugins.insert(name, sequence_plugin);
+                }
+                _ => {
+                    return Err(Error::Config(format!(
+                        "sequence '{}': args must be a list or a plugins mapping",
+                        name
+                    )));
                 }
             }
         }
 
-        // Second pass: ask fallback plugins to resolve their pending child references
+        // Pass 2: ask top-level fallback plugins to resolve their children.
         for config in configs {
-            if config.plugin_type == "fallback" {
-                let name = config.effective_name().to_string();
-                debug!("Resolving fallback plugin: {}", name);
-                if let Some(plugin) = self.plugins.get(&name).cloned() {
-                    // Attempt to downcast to FallbackPlugin and let it resolve itself
-                    if let Some(fp) = plugin.as_ref().as_any().downcast_ref::<FallbackPlugin>() {
-                        fp.resolve_children(&self.plugins);
-                    } else {
-                        warn!(plugin = %name, "Plugin registered under name is not a FallbackPlugin");
-                    }
+            if config.plugin_type.trim().to_lowercase() != "fallback" {
+                continue;
+            }
+            let name = config.effective_name().to_string();
+            debug!("Resolving fallback plugin: {}", name);
+            if let Some(plugin) = self.plugins.get(&name).cloned() {
+                // Attempt to downcast to FallbackPlugin and let it resolve itself
+                if let Some(fp) = plugin.as_ref().as_any().downcast_ref::<FallbackPlugin>() {
+                    fp.resolve_children(&self.plugins);
                 } else {
-                    warn!(plugin = %name, "Fallback plugin not found in registry");
+                    warn!(plugin = %name, "Plugin registered under name is not a FallbackPlugin");
                 }
+            } else {
+                warn!(plugin = %name, "Fallback plugin not found in registry");
+            }
+        }
+
+        // Pass 3: `fallback` exec steps inside sequences were created by
+        // name and still have pending children.
+        let sequences: Vec<Arc<dyn Plugin>> = self.plugins.values().cloned().collect();
+        for plugin in sequences {
+            if let Some(seq) = plugin.as_ref().as_any().downcast_ref::<SequencePlugin>() {
+                seq.resolve_fallback_children(&self.plugins);
             }
         }
 
@@ -1091,6 +1098,106 @@ mod tests {
         } else {
             panic!("fallback plugin is wrong type");
         }
+    }
+
+    #[test]
+    fn test_sequence_plugins_list_resolves() {
+        let mut builder = PluginBuilder::new();
+        builder.plugins.insert(
+            "step_a".to_string(),
+            Arc::new(crate::plugins::flow::AcceptPlugin::new()),
+        );
+        builder.plugins.insert(
+            "step_b".to_string(),
+            Arc::new(crate::plugins::flow::AcceptPlugin::new()),
+        );
+
+        let mut args = Mapping::new();
+        args.insert(
+            Value::String("plugins".to_string()),
+            Value::Sequence(vec![
+                Value::String("step_a".to_string()),
+                Value::String("step_b".to_string()),
+            ]),
+        );
+        let seq_cfg = PluginConfig {
+            tag: Some("main".to_string()),
+            plugin_type: "sequence".to_string(),
+            args: Value::Mapping(args),
+        };
+        builder.build(&seq_cfg).unwrap();
+
+        // empty until references resolve
+        builder.resolve_references(&[seq_cfg]).unwrap();
+
+        let seq = builder.get_plugin("main").unwrap();
+        let sp = seq
+            .as_ref()
+            .as_any()
+            .downcast_ref::<SequencePlugin>()
+            .expect("sequence plugin type");
+        assert_eq!(sp.step_count(), 2);
+    }
+
+    #[test]
+    fn test_sequence_plugins_list_unknown_name_errors() {
+        let mut builder = PluginBuilder::new();
+        let mut args = Mapping::new();
+        args.insert(
+            Value::String("plugins".to_string()),
+            Value::Sequence(vec![Value::String("nope".to_string())]),
+        );
+        let seq_cfg = PluginConfig {
+            tag: None,
+            plugin_type: "sequence".to_string(),
+            args: Value::Mapping(args),
+        };
+        builder.build(&seq_cfg).unwrap();
+
+        assert!(builder.resolve_references(&[seq_cfg]).is_err());
+    }
+
+    #[test]
+    fn test_embedded_fallback_resolves() {
+        // `- exec: "fallback a,b"` inside a sequence must get its children
+        // wired up, not stay an empty no-op
+        let mut builder = PluginBuilder::new();
+        builder.plugins.insert(
+            "fb_a".to_string(),
+            Arc::new(crate::plugins::flow::AcceptPlugin::new()),
+        );
+        builder.plugins.insert(
+            "fb_b".to_string(),
+            Arc::new(crate::plugins::flow::AcceptPlugin::new()),
+        );
+
+        let mut step = Mapping::new();
+        step.insert(
+            Value::String("exec".to_string()),
+            Value::String("fallback fb_a,fb_b".to_string()),
+        );
+        let seq_cfg = PluginConfig {
+            tag: Some("seq".to_string()),
+            plugin_type: "sequence".to_string(),
+            args: Value::Sequence(vec![Value::Mapping(step)]),
+        };
+        builder.build(&seq_cfg).unwrap();
+        builder.resolve_references(&[seq_cfg]).unwrap();
+
+        let seq = builder.get_plugin("seq").unwrap();
+        let sp = seq
+            .as_ref()
+            .as_any()
+            .downcast_ref::<SequencePlugin>()
+            .expect("sequence plugin type");
+        assert!(sp.steps().iter().any(|step| match step {
+            SequenceStep::Exec(p) | SequenceStep::If { action: p, .. } => {
+                p.as_ref()
+                    .as_any()
+                    .downcast_ref::<crate::plugins::executable::FallbackPlugin>()
+                    .is_some_and(|fp| fp.resolved_child_count() == 2)
+            }
+        }));
     }
 
     #[test]

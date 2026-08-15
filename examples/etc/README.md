@@ -15,6 +15,15 @@ This directory contains a complete working example of LazyDNS configuration base
 (optional)
 - **Rate Limiting and Validation**: Basic rate limiting and query validation
 
+## Generated Data Files
+
+`apple-cn.txt`, `china-ip-list.txt`, `direct-list.txt`, `hosts-github.txt`,
+`proxy-list.txt` and `reject-list.txt` are fetched from upstream rule
+repositories by the `update` script (or the downloader cron in `config.yaml`)
+and are not tracked by git. On a fresh clone, run `./update` once (with
+`WORKDIR` pointing at this directory) or let the cron downloader fetch them
+before starting the server.
+
 ## Quick Start
 
 ### 1. Run the Example

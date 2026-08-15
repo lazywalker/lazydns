@@ -1,0 +1,8 @@
+# fetched by ./update and the downloader cron; regenerated on first run,
+# so keep local copies out of the tree
+/apple-cn.txt
+/china-ip-list.txt
+/direct-list.txt
+/hosts-github.txt
+/proxy-list.txt
+/reject-list.txt

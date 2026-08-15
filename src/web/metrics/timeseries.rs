@@ -125,6 +125,15 @@ impl TimeSeries {
         (elapsed.as_secs() / bucket_secs) * bucket_secs
     }
 
+    /// Earliest bucket timestamp still inside the window, from `now`.
+    /// Reads must apply this themselves: cleanup only runs on add(), which
+    /// never happens once traffic stops, so unfiltered reads would keep
+    /// serving stale buckets forever.
+    fn window_cutoff(&self) -> u64 {
+        self.current_bucket_timestamp()
+            .saturating_sub(self.window.as_secs())
+    }
+
     /// Clean up old buckets (requires write lock)
     fn cleanup_locked(&self, buckets: &mut VecDeque<Bucket>, current_timestamp: u64) {
         let window_secs = self.window.as_secs();
@@ -141,15 +150,15 @@ impl TimeSeries {
 
     /// Get all data points in the window
     pub fn points(&self) -> Vec<TimeSeriesPoint> {
-        let now = self.current_bucket_timestamp();
         let buckets = self.buckets.read();
 
         // Calculate the Unix timestamp of start_time
         let start_unix = self.get_start_time_unix();
 
+        let cutoff = self.window_cutoff();
         buckets
             .iter()
-            .filter(|b| b.timestamp <= now)
+            .filter(|b| b.timestamp >= cutoff)
             .map(|b| TimeSeriesPoint {
                 // Convert to absolute Unix timestamp: start_time + bucket_relative_time
                 timestamp: start_unix + b.timestamp,
@@ -160,15 +169,15 @@ impl TimeSeries {
 
     /// Get average values for each bucket
     pub fn averages(&self) -> Vec<TimeSeriesPoint> {
-        let now = self.current_bucket_timestamp();
         let buckets = self.buckets.read();
 
         // Calculate the Unix timestamp of start_time
         let start_unix = self.get_start_time_unix();
 
+        let cutoff = self.window_cutoff();
         buckets
             .iter()
-            .filter(|b| b.timestamp <= now)
+            .filter(|b| b.timestamp >= cutoff)
             .map(|b| TimeSeriesPoint {
                 // Convert to absolute Unix timestamp: start_time + bucket_relative_time
                 timestamp: start_unix + b.timestamp,
@@ -199,23 +208,38 @@ impl TimeSeries {
 
     /// Get the sum of all values in the window
     pub fn sum(&self) -> f64 {
-        self.buckets.read().iter().map(|b| b.sum).sum()
+        let cutoff = self.window_cutoff();
+        self.buckets
+            .read()
+            .iter()
+            .filter(|b| b.timestamp >= cutoff)
+            .map(|b| b.sum)
+            .sum()
     }
 
     /// Get the count of all values in the window
     pub fn count(&self) -> u64 {
-        self.buckets.read().iter().map(|b| b.count).sum()
+        let cutoff = self.window_cutoff();
+        self.buckets
+            .read()
+            .iter()
+            .filter(|b| b.timestamp >= cutoff)
+            .map(|b| b.count)
+            .sum()
     }
 
-    /// Get the current rate (sum per second over window)
+    /// Get the current rate (sum per second). While the series is younger
+    /// than the window, divide by the elapsed time; the full window would
+    /// massively understate a busy server right after startup.
     pub fn rate(&self) -> f64 {
         let sum = self.sum();
-        let window_secs = self.window.as_secs() as f64;
-        if window_secs > 0.0 {
-            sum / window_secs
-        } else {
-            0.0
-        }
+        let elapsed = self
+            .start_time
+            .elapsed()
+            .as_secs()
+            .max(1)
+            .min(self.window.as_secs());
+        sum / elapsed as f64
     }
 
     /// Get min, max, and average over the window
@@ -232,12 +256,13 @@ impl TimeSeries {
             };
         }
 
+        let cutoff = self.window_cutoff();
         let mut total_sum = 0.0;
         let mut total_count = 0u64;
         let mut overall_min = f64::MAX;
         let mut overall_max = f64::MIN;
 
-        for bucket in buckets.iter() {
+        for bucket in buckets.iter().filter(|b| b.timestamp >= cutoff) {
             total_sum += bucket.sum;
             total_count += bucket.count;
             if bucket.count > 0 {
@@ -479,13 +504,29 @@ mod tests {
 
     #[test]
     fn test_time_series_rate() {
+        // 100 events within the first second: the rate must reflect the
+        // elapsed time, not the full window (which would report 10)
         let ts = TimeSeries::new(Duration::from_secs(10), Duration::from_secs(1));
         for _ in 0..100 {
             ts.increment();
         }
 
         let rate = ts.rate();
-        assert!((rate - 10.0).abs() < 0.1); // ~10 per second
+        assert!(rate > 50.0, "warm-up rate understated: {}", rate);
+    }
+
+    #[test]
+    fn test_time_series_decays_when_idle() {
+        // no new adds: old buckets must fall out of the window on reads
+        let ts = TimeSeries::new(Duration::from_secs(1), Duration::from_secs(1));
+        for _ in 0..50 {
+            ts.increment();
+        }
+        assert!(ts.sum() > 0.0);
+
+        std::thread::sleep(Duration::from_millis(2200));
+        assert_eq!(ts.sum(), 0.0);
+        assert_eq!(ts.rate(), 0.0);
     }
 
     #[test]

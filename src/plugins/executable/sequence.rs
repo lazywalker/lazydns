@@ -63,6 +63,34 @@ impl SequencePlugin {
     pub fn with_steps_and_tag(steps: Vec<SequenceStep>, tag: Option<String>) -> Self {
         Self { steps, tag }
     }
+
+    pub fn steps(&self) -> &[SequenceStep] {
+        &self.steps
+    }
+
+    pub fn step_count(&self) -> usize {
+        self.steps.len()
+    }
+
+    /// Resolve pending `fallback` child references inside this sequence's
+    /// steps. A `- exec: "fallback a,b"` step creates the fallback by name,
+    /// which can only be wired up once the whole registry exists.
+    pub fn resolve_fallback_children(
+        &self,
+        registry: &std::collections::HashMap<String, Arc<dyn Plugin>>,
+    ) {
+        use super::FallbackPlugin;
+
+        for step in &self.steps {
+            let plugin = match step {
+                SequenceStep::Exec(plugin) => plugin,
+                SequenceStep::If { action, .. } => action,
+            };
+            if let Some(fp) = plugin.as_ref().as_any().downcast_ref::<FallbackPlugin>() {
+                fp.resolve_children(registry);
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -169,6 +197,11 @@ impl Plugin for SequencePlugin {
 
     fn name(&self) -> &str {
         "sequence"
+    }
+
+    // without this the as_any default returns &() and every downcast fails
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn tag(&self) -> Option<&str> {

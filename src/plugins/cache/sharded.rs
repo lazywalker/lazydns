@@ -38,13 +38,14 @@ impl ShardedLruCache {
     }
 
     fn shard_for(&self, key: &str) -> &RwLock<LruCache<String, CacheEntry>> {
-        // a cheap stable hash; distribution matters more than strength here
-        let mut h: usize = 0xcbf29ce484222325;
+        // a cheap stable hash; distribution matters more than strength here.
+        // u64, not usize: 32-bit targets cannot hold the FNV constants.
+        let mut h: u64 = 0xcbf29ce484222325;
         for b in key.as_bytes() {
-            h ^= *b as usize;
+            h ^= *b as u64;
             h = h.wrapping_mul(0x100000001b3);
         }
-        &self.shards[h & self.mask]
+        &self.shards[(h as usize) & self.mask]
     }
 
     /// Lookup with recency update (exclusive lock on one shard only).

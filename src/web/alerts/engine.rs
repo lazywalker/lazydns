@@ -97,6 +97,14 @@ pub struct AlertEngine {
 impl AlertEngine {
     /// Create a new alert engine
     pub fn new(config: &AlertConfig) -> Result<Self> {
+        for rule in &config.rules {
+            if !matches!(rule.condition, AlertCondition::SecurityEvent { .. }) {
+                warn!(
+                    rule = %rule.name,
+                    "alert rule condition is not evaluated yet and will never fire"
+                );
+            }
+        }
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -334,8 +342,11 @@ impl AlertEngine {
                 return;
             }
 
-            // Exponential backoff
-            tokio::time::sleep(Duration::from_millis(100 * 2u64.pow(retries))).await;
+            // Exponential backoff, capped so the shift cannot overflow
+            let backoff_ms = 100u64
+                .checked_shl(retries.min(20))
+                .unwrap_or(u64::MAX >> 20);
+            tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
         }
     }
 

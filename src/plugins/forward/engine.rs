@@ -178,6 +178,10 @@ impl Forward {
                 tx,
             },
         );
+        let _pending = PendingGuard {
+            mux: Arc::clone(mux),
+            qid: assigned_qid,
+        };
 
         let sent = mux.socket.send_to(&request_data, upstream_addr).await?;
         trace!(
@@ -201,7 +205,6 @@ impl Forward {
                 }
             }
             _ = tokio::time::sleep(self.timeout) => {
-                mux.pending.remove(&assigned_qid);
                 warn!("Timeout waiting for response from {}", upstream_addr);
                 Err(crate::Error::UpstreamTimeout {
                     upstream: upstream_addr.to_string(),
@@ -301,5 +304,19 @@ impl Forward {
             .map_err(|e| crate::Error::Other(e.to_string()))?;
 
         crate::dns::wire::parse_message(&bytes)
+    }
+}
+
+/// Removes the pending mux entry on drop: normal completion, timeout, or
+/// task abort (concurrent mode aborts the losing upstreams mid-await; a
+/// leaked entry would pin its qid and eventually hot-spin the allocator).
+struct PendingGuard {
+    mux: Arc<UdpMuxState>,
+    qid: u16,
+}
+
+impl Drop for PendingGuard {
+    fn drop(&mut self) {
+        self.mux.pending.remove(&self.qid);
     }
 }

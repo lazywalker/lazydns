@@ -1,6 +1,6 @@
 [package]
 name = "lazydns"
-version = "0.3.24"
+version = "0.3.25"
 edition = "2024"
 authors = ["lazywalker <lazywalkerz@gmail.com>"]
 description = "A light and fast DNS server/forwarder implementation in Rust"
@@ -97,16 +97,7 @@ harness = false
 name = "arc_str_bench"
 
 [dependencies]
-tokio = {
-  version = "1.49",
-  default-features = false,
-  features = [
-    "macros",
-    "process",
-    "rt",
-    "signal",
-  ]
-}
+tokio = { version = "1.49", default-features = false, features = ["macros", "process", "rt", "signal"] }
 
 # DNS protocol
 hickory-proto = "0.24"
@@ -120,12 +111,7 @@ serde_yaml = "0.9"
 anyhow = "1.0"
 thiserror = "2.0"
 
-lazylog = {
-  git = "https://github.com/lazywalker/lazylog",
-  version = "0.1.6",
-  default-features = false,
-  optional = true
-}
+lazylog = { git = "https://github.com/lazywalker/lazylog", version = "0.1.6", default-features = false, optional = true }
 # Logging
 tracing = "0.1"
 
@@ -146,35 +132,10 @@ parking_lot = "0.12"
 lru = "0.16"
 
 # Networking
-axum = {
-  version = "0.8",
-  default-features = false,
-  features = [
-    # FIXME: connection will reset when test curl with admin features with http2
-    "http1",
-    "json",
-    "macros",
-    "query",
-    "tokio",
-  ],
-  optional = true
-}
-reqwest = {
-  version = "0.12",
-  default-features = false,
-  features = [
-    "json",
-    "rustls-tls",
-  ]
-}
-rustls = {
-  version = "0.23",
-  default-features = false,
-  features = [
-    "ring",
-  ],
-  optional = true
-}
+# FIXME: connection will reset when test curl with admin features with http2
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "macros", "query", "tokio"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"], optional = true }
 rustls-pemfile = { version = "2.0", optional = true }
 tokio-rustls = { version = "0.26", optional = true }
 
@@ -208,30 +169,14 @@ async-stream = { version = "0.3", optional = true }
 futures-util = { version = "0.3", features = ["sink"], optional = true }
 # WebUI dependencies (optional)
 tower = { version = "0.5", optional = true }
-tower-http = {
-  version = "0.7",
-  features = [
-    "cors",
-    "fs",
-    "trace",
-  ],
-  optional = true
-}
+tower-http = { version = "0.7", features = ["cors", "fs", "trace"], optional = true }
 uuid = { version = "1.11", features = ["v4"], optional = true }
 
 # Embedded WebUI assets (optional)
 rust-embed = { version = "8", features = ["mime-guess"], optional = true }
 
 # Optional TLS-enabled HTTP server for DoH production deployments.
-axum-server = {
-  package = "axum-server",
-  version = "0.8",
-  default-features = false,
-  features = [
-    "tls-rustls-no-provider",
-  ],
-  optional = true
-}
+axum-server = { package = "axum-server", version = "0.8", default-features = false, features = ["tls-rustls-no-provider"], optional = true }
 
 [dev-dependencies]
 criterion = "0.8"
