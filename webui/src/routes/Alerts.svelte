@@ -103,8 +103,8 @@
   });
 </script>
 
-<div class="max-w-7xl mx-auto">
-  <div class="mb-8">
+<div class="space-y-6">
+  <div>
     <h1 class="text-2xl font-bold {$darkMode ? 'text-white' : 'text-gray-900'}">
       All Alerts
     </h1>
