@@ -126,13 +126,20 @@ impl TcpServer {
 
                     let handler = Arc::clone(&self.handler);
                     let max_size = self.config.max_tcp_size;
+                    let read_timeout = self.config.timeout;
 
                     // Spawn a task to handle this connection
                     // The permit is held until the task completes
                     tokio::spawn(async move {
                         let _permit = permit; // Hold permit until connection is done
-                        if let Err(e) =
-                            Self::handle_connection(stream, peer_addr, handler, max_size).await
+                        if let Err(e) = Self::handle_connection(
+                            stream,
+                            peer_addr,
+                            handler,
+                            max_size,
+                            read_timeout,
+                        )
+                        .await
                         {
                             error!("Error handling connection from {}: {}", peer_addr, e);
                         }
@@ -170,10 +177,14 @@ impl TcpServer {
         peer_addr: std::net::SocketAddr,
         handler: Arc<dyn RequestHandler>,
         max_size: usize,
+        read_timeout: std::time::Duration,
     ) -> Result<()> {
         // Read message length (2 bytes, big-endian)
         let mut len_buf = [0u8; 2];
-        stream.read_exact(&mut len_buf).await.map_err(Error::Io)?;
+        tokio::time::timeout(read_timeout, stream.read_exact(&mut len_buf))
+            .await
+            .map_err(|_| Error::Other("timed out reading message length".to_string()))?
+            .map_err(Error::Io)?;
 
         let msg_len = u16::from_be_bytes(len_buf) as usize;
 
@@ -188,7 +199,10 @@ impl TcpServer {
 
         // Read message data
         let mut buf = vec![0u8; msg_len];
-        stream.read_exact(&mut buf).await.map_err(Error::Io)?;
+        tokio::time::timeout(read_timeout, stream.read_exact(&mut buf))
+            .await
+            .map_err(|_| Error::Other("timed out reading message body".to_string()))?
+            .map_err(Error::Io)?;
 
         // Parse request
         let request = parse_dns_request(&buf)?;
@@ -313,6 +327,7 @@ mod tests {
                     "127.0.0.1:12345".parse().unwrap(),
                     handler,
                     64 * 1024,
+                    std::time::Duration::from_secs(5),
                 )
                 .await;
             }

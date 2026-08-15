@@ -37,6 +37,9 @@ pub struct DotServer {
     handler: Arc<dyn RequestHandler>,
     /// Maximum concurrent connections
     max_connections: usize,
+    /// Per-read timeout for connection framing; bounds how long a stalled
+    /// client can hold one of the connection permits
+    read_timeout: std::time::Duration,
     /// Shared shutdown bus
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
@@ -82,6 +85,7 @@ impl DotServer {
             tls_config,
             handler,
             max_connections: 1000, // Default value
+            read_timeout: std::time::Duration::from_secs(5),
             shutdown_rx: tokio::sync::watch::channel(false).1,
         }
     }
@@ -89,6 +93,12 @@ impl DotServer {
     /// Attach the launcher-wide shutdown bus.
     pub fn with_shutdown_rx(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self {
         self.shutdown_rx = shutdown_rx;
+        self
+    }
+
+    /// Set the per-read framing timeout.
+    pub fn with_read_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.read_timeout = timeout;
         self
     }
 
@@ -143,10 +153,13 @@ impl DotServer {
 
                     let acceptor = acceptor.clone();
                     let handler = Arc::clone(&self.handler);
+                    let read_timeout = self.read_timeout;
 
                     tokio::spawn(async move {
                         let _permit = permit; // Hold permit until connection is done
-                        if let Err(e) = Self::handle_connection(stream, acceptor, handler).await {
+                        if let Err(e) =
+                            Self::handle_connection(stream, acceptor, handler, read_timeout).await
+                        {
                             warn!("Error handling DoT connection from {}: {}", peer_addr, e);
                         }
                     });
@@ -173,6 +186,7 @@ impl DotServer {
         stream: TcpStream,
         acceptor: TlsAcceptor,
         handler: Arc<dyn RequestHandler>,
+        read_timeout: std::time::Duration,
     ) -> Result<()> {
         // Capture peer address if available for logging
         let peer_addr = stream.peer_addr().ok();
@@ -189,15 +203,20 @@ impl DotServer {
         loop {
             // Read message length (2 bytes, big-endian) - same as TCP DNS
             let mut len_buf = [0u8; 2];
-            match tls_stream.read_exact(&mut len_buf).await {
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            match tokio::time::timeout(read_timeout, tls_stream.read_exact(&mut len_buf)).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     // Client closed connection
                     debug!("DoT client closed connection");
                     break;
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     return Err(Error::Io(e));
+                }
+                Err(_) => {
+                    // idle or stalled client: give the permit back
+                    debug!("DoT read timed out, closing connection");
+                    break;
                 }
             }
 
@@ -212,7 +231,10 @@ impl DotServer {
             // Read message data
             let mut buf = vec![0u8; msg_len];
             trace!(peer = ?peer_addr, len = msg_len, "Reading DoT message");
-            tls_stream.read_exact(&mut buf).await.map_err(Error::Io)?;
+            tokio::time::timeout(read_timeout, tls_stream.read_exact(&mut buf))
+                .await
+                .map_err(|_| Error::Other("DoT body read timed out".to_string()))?
+                .map_err(Error::Io)?;
 
             // Parse request from wire-format bytes
             let request = parse_dns_request(&buf)?;
@@ -283,7 +305,9 @@ impl Server for DotServer {
             .handler
             .ok_or_else(|| Error::Config("Handler not configured".to_string()))?;
 
-        Ok(Self::new(addr, tls_config, handler).with_shutdown_rx(config.shutdown_rx))
+        Ok(Self::new(addr, tls_config, handler)
+            .with_shutdown_rx(config.shutdown_rx)
+            .with_read_timeout(config.timeout))
     }
 
     async fn run(self) -> Result<()> {
