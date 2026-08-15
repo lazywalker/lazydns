@@ -37,6 +37,8 @@ pub struct DotServer {
     handler: Arc<dyn RequestHandler>,
     /// Maximum concurrent connections
     max_connections: usize,
+    /// Shared shutdown bus
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 impl std::fmt::Debug for DotServer {
@@ -80,7 +82,14 @@ impl DotServer {
             tls_config,
             handler,
             max_connections: 1000, // Default value
+            shutdown_rx: tokio::sync::watch::channel(false).1,
         }
+    }
+
+    /// Attach the launcher-wide shutdown bus.
+    pub fn with_shutdown_rx(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.shutdown_rx = shutdown_rx;
+        self
     }
 
     /// Create a new DoT server with custom max connections
@@ -97,6 +106,7 @@ impl DotServer {
 
         // Create semaphore for concurrency control
         let concurrent_limit = Arc::new(Semaphore::new(self.max_connections));
+        let shutdown = self.shutdown_rx.clone();
 
         info!(
             "DoT server listening on {} (max_concurrent: {})",
@@ -107,38 +117,55 @@ impl DotServer {
         let acceptor = TlsAcceptor::from(tls_config);
 
         loop {
-            let (stream, peer_addr) = match listener.accept().await {
-                Ok(conn) => conn,
-                Err(e) => {
-                    error!("Failed to accept connection: {}", e);
-                    continue;
+            tokio::select! {
+                accepted = listener.accept() => {
+                    let (stream, peer_addr) = match accepted {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            error!("Failed to accept connection: {}", e);
+                            continue;
+                        }
+                    };
+
+                    // Try to acquire a permit without waiting
+                    let permit = match concurrent_limit.clone().try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            warn!(
+                                "DoT concurrent connection limit reached, rejecting connection from {}",
+                                peer_addr
+                            );
+                            continue;
+                        }
+                    };
+
+                    debug!("DoT connection from {}", peer_addr);
+
+                    let acceptor = acceptor.clone();
+                    let handler = Arc::clone(&self.handler);
+
+                    tokio::spawn(async move {
+                        let _permit = permit; // Hold permit until connection is done
+                        if let Err(e) = Self::handle_connection(stream, acceptor, handler).await {
+                            warn!("Error handling DoT connection from {}: {}", peer_addr, e);
+                        }
+                    });
                 }
-            };
-
-            // Try to acquire a permit without waiting
-            let permit = match concurrent_limit.clone().try_acquire_owned() {
-                Ok(permit) => permit,
-                Err(_) => {
-                    warn!(
-                        "DoT concurrent connection limit reached, rejecting connection from {}",
-                        peer_addr
-                    );
-                    continue;
+                _ = crate::server::common::await_shutdown(&shutdown) => {
+                    info!("DoT server shutting down, draining in-flight connections");
+                    break;
                 }
-            };
-
-            debug!("DoT connection from {}", peer_addr);
-
-            let acceptor = acceptor.clone();
-            let handler = Arc::clone(&self.handler);
-
-            tokio::spawn(async move {
-                let _permit = permit; // Hold permit until connection is done
-                if let Err(e) = Self::handle_connection(stream, acceptor, handler).await {
-                    warn!("Error handling DoT connection from {}: {}", peer_addr, e);
-                }
-            });
+            }
         }
+
+        crate::server::common::drain_permits(
+            &concurrent_limit,
+            self.max_connections,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        info!("DoT server stopped");
+        Ok(())
     }
 
     /// Handle a single TLS connection
@@ -256,7 +283,7 @@ impl Server for DotServer {
             .handler
             .ok_or_else(|| Error::Config("Handler not configured".to_string()))?;
 
-        Ok(Self::new(addr, tls_config, handler))
+        Ok(Self::new(addr, tls_config, handler).with_shutdown_rx(config.shutdown_rx))
     }
 
     async fn run(self) -> Result<()> {

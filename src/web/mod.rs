@@ -320,6 +320,15 @@ impl WebServer {
 
     /// Run the WebUI server
     pub async fn run(self) -> Result<()> {
+        let shutdown = tokio::sync::watch::channel(false).1;
+        self.run_with_shutdown(shutdown).await
+    }
+
+    /// Run the WebUI server, stopping gracefully when `shutdown` is set.
+    pub async fn run_with_shutdown(
+        self,
+        shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<()> {
         let addr: SocketAddr = self
             .config
             .socket_addr()
@@ -353,6 +362,10 @@ impl WebServer {
             .map_err(crate::Error::Io)?;
 
         axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                crate::server::common::await_shutdown(&shutdown).await;
+                info!("WebUI server shutting down");
+            })
             .await
             .map_err(crate::Error::Io)?;
 

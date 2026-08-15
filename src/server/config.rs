@@ -74,6 +74,10 @@ pub struct ServerConfig {
     /// clients can otherwise spoof their IP to bypass ACLs and rate limits.
     /// Default: `false`.
     pub trust_forwarded_for: bool,
+
+    /// Shutdown bus shared by every server from one launcher. Setting it to
+    /// true asks servers to stop accepting and drain in-flight work.
+    pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 impl std::fmt::Debug for ServerConfig {
@@ -90,6 +94,7 @@ impl std::fmt::Debug for ServerConfig {
             .field("key_path", &self.key_path)
             .field("doh_path", &self.doh_path)
             .field("trust_forwarded_for", &self.trust_forwarded_for)
+            .field("shutdown", &*self.shutdown_rx.borrow())
             .finish()
     }
 }
@@ -119,6 +124,7 @@ impl Default for ServerConfig {
             key_path: None,
             doh_path: None,
             trust_forwarded_for: false,
+            shutdown_rx: tokio::sync::watch::channel(false).1,
         }
     }
 }
@@ -239,6 +245,12 @@ impl ServerConfig {
     /// behind a trusted reverse proxy).
     pub fn with_trust_forwarded_for(mut self, trust: bool) -> Self {
         self.trust_forwarded_for = trust;
+        self
+    }
+
+    /// Attach the launcher-wide shutdown bus.
+    pub fn with_shutdown_rx(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.shutdown_rx = shutdown_rx;
         self
     }
 }

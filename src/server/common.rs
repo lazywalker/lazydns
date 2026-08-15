@@ -6,6 +6,42 @@
 use crate::Result;
 use crate::dns::Message;
 
+/// Resolve when the shutdown bus is set to true. A bus that was already
+/// signalled resolves immediately; a bus whose sender was dropped (server
+/// built standalone with a default channel) never resolves.
+pub async fn await_shutdown(shutdown: &tokio::sync::watch::Receiver<bool>) {
+    let mut shutdown = shutdown.clone();
+    if *shutdown.borrow_and_update() {
+        return;
+    }
+    loop {
+        match shutdown.changed().await {
+            Ok(()) => {
+                if *shutdown.borrow() {
+                    return;
+                }
+            }
+            // sender dropped without a signal: serve forever
+            Err(_) => std::future::pending::<()>().await,
+        }
+    }
+}
+
+/// Wait until every permit taken from `limit` has been returned, bounded by
+/// `timeout`. Used to drain in-flight requests before a server task exits.
+pub async fn drain_permits(
+    limit: &tokio::sync::Semaphore,
+    total: usize,
+    timeout: std::time::Duration,
+) {
+    let _ = tokio::time::timeout(timeout, async {
+        while limit.available_permits() < total {
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await;
+}
+
 /// Parse DNS request from wire format
 ///
 /// Thin wrapper around `dns::wire::parse_message` that converts a byte

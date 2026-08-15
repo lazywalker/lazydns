@@ -105,7 +105,7 @@ impl MonitoringServer {
     pub async fn run_with_signal(
         self,
         startup_tx: Option<tokio::sync::oneshot::Sender<()>>,
-        mut shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
+        shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> Result<(), std::io::Error> {
         let app = Router::new()
             .route("/metrics", get(metrics_handler))
@@ -126,18 +126,27 @@ impl MonitoringServer {
         // provided we await it. Otherwise, listen to OS signals (Ctrl-C / SIGTERM / SIGHUP)
         // so the monitoring server can shut itself down like the admin server.
         let shutdown_fut = async move {
-            if let Some(rx) = shutdown_rx.as_mut() {
-                let _ = rx.await;
+            if let Some(rx) = shutdown_rx {
+                crate::server::common::await_shutdown(&rx).await;
             } else {
                 #[cfg(unix)]
                 {
-                    let mut sigterm = signal(SignalKind::terminate()).unwrap();
-                    let mut sighup = signal(SignalKind::hangup()).unwrap();
-
-                    tokio::select! {
-                        _ = tokio::signal::ctrl_c() => {},
-                        _ = sigterm.recv() => {},
-                        _ = sighup.recv() => {},
+                    // restricted runtimes cannot install signal handlers;
+                    // fall back to ctrl_c alone instead of panicking
+                    match (
+                        signal(SignalKind::terminate()),
+                        signal(SignalKind::hangup()),
+                    ) {
+                        (Ok(mut sigterm), Ok(mut sighup)) => {
+                            tokio::select! {
+                                _ = tokio::signal::ctrl_c() => {},
+                                _ = sigterm.recv() => {},
+                                _ = sighup.recv() => {},
+                            }
+                        }
+                        _ => {
+                            let _ = tokio::signal::ctrl_c().await;
+                        }
                     }
                 }
 

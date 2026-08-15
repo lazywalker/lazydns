@@ -34,6 +34,7 @@ pub struct DoqServer {
     cert_path: String,
     key_path: String,
     handler: Arc<dyn RequestHandler>,
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 impl std::fmt::Debug for DoqServer {
@@ -65,7 +66,14 @@ impl DoqServer {
             cert_path: cert_path.into(),
             key_path: key_path.into(),
             handler,
+            shutdown_rx: tokio::sync::watch::channel(false).1,
         }
+    }
+
+    /// Attach the launcher-wide shutdown bus.
+    pub fn with_shutdown_rx(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.shutdown_rx = shutdown_rx;
+        self
     }
 
     /// Run the DoQ server listening on the configured address.
@@ -87,41 +95,54 @@ impl DoqServer {
             .unwrap_or_else(|_| "unknown".to_string());
         info!(local = %local, "DoQ listening");
 
-        // Accept incoming QUIC connections
-        while let Some(incoming) = endpoint.accept().await {
-            let handler = Arc::clone(&self.handler);
+        let shutdown = self.shutdown_rx.clone();
 
-            // Spawn a task per accepted connection; each connection will
-            // accept bi-directional streams and spawn a task per stream.
-            tokio::spawn(async move {
-                match incoming.await {
-                    Ok(connection) => {
-                        info!(remote = %connection.remote_address(), "Accepted QUIC connection");
-                        // Per-connection: accept bi-directional streams
-                        loop {
-                            match connection.accept_bi().await {
-                                Ok((send, recv)) => {
-                                    let handler = Arc::clone(&handler);
-                                    tokio::spawn(async move {
-                                        if let Err(e) = handle_stream(recv, send, handler).await {
-                                            debug!("DoQ stream error: {}", e);
+        // Accept incoming QUIC connections
+        loop {
+            tokio::select! {
+                incoming = endpoint.accept() => {
+                    let Some(incoming) = incoming else { break };
+                    let handler = Arc::clone(&self.handler);
+
+                    // Spawn a task per accepted connection; each connection will
+                    // accept bi-directional streams and spawn a task per stream.
+                    tokio::spawn(async move {
+                        match incoming.await {
+                            Ok(connection) => {
+                                info!(remote = %connection.remote_address(), "Accepted QUIC connection");
+                                // Per-connection: accept bi-directional streams
+                                loop {
+                                    match connection.accept_bi().await {
+                                        Ok((send, recv)) => {
+                                            let handler = Arc::clone(&handler);
+                                            tokio::spawn(async move {
+                                                if let Err(e) = handle_stream(recv, send, handler).await {
+                                                    debug!("DoQ stream error: {}", e);
+                                                }
+                                            });
                                         }
-                                    });
-                                }
-                                Err(e) => {
-                                    debug!("Connection stream accept error: {}", e);
-                                    break;
+                                        Err(e) => {
+                                            debug!("Connection stream accept error: {}", e);
+                                            break;
+                                        }
+                                    }
                                 }
                             }
+                            Err(e) => {
+                                error!("Failed to accept incoming QUIC connection: {}", e);
+                            }
                         }
-                    }
-                    Err(e) => {
-                        error!("Failed to accept incoming QUIC connection: {}", e);
-                    }
+                    });
                 }
-            });
+                _ = crate::server::common::await_shutdown(&shutdown) => {
+                    info!("DoQ server shutting down, closing endpoint");
+                    endpoint.close(0u32.into(), b"server shutting down");
+                    break;
+                }
+            }
         }
 
+        info!("DoQ server stopped");
         Ok(())
     }
 }
@@ -146,7 +167,7 @@ impl Server for DoqServer {
             .handler
             .ok_or_else(|| crate::Error::Config("Handler not configured".to_string()))?;
 
-        Ok(Self::new(addr, cert_path, key_path, handler))
+        Ok(Self::new(addr, cert_path, key_path, handler).with_shutdown_rx(config.shutdown_rx))
     }
 
     async fn run(self) -> crate::Result<()> {

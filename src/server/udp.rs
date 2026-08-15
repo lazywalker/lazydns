@@ -8,6 +8,7 @@ use crate::dns::types::{RecordClass, RecordType};
 use crate::server::{RequestHandler, Server, ServerConfig};
 use crate::{Error, Result};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, trace, warn};
@@ -205,12 +206,21 @@ impl UdpServer {
     /// This method does not panic under normal circumstances.
     pub async fn run(&self) -> Result<()> {
         let mut buf = vec![0u8; self.config.max_udp_size.max(RECV_BUF_MIN)];
+        let shutdown = self.config.shutdown_rx.clone();
 
         info!("UDP server started");
 
         loop {
-            match self.socket.recv_from(&mut buf).await {
-                Ok((len, peer_addr)) => {
+            tokio::select! {
+                received = self.socket.recv_from(&mut buf) => {
+                    let (len, peer_addr) = match received {
+                        Ok(r) => r,
+                        Err(e) => {
+                            error!("Error receiving UDP packet: {}", e);
+                            // Continue serving despite errors
+                            continue;
+                        }
+                    };
                     trace!("Received {} bytes from {}", len, peer_addr);
 
                     // Try to acquire a permit without waiting
@@ -242,12 +252,21 @@ impl UdpServer {
                         }
                     });
                 }
-                Err(e) => {
-                    error!("Error receiving UDP packet: {}", e);
-                    // Continue serving despite errors
+                _ = crate::server::common::await_shutdown(&shutdown) => {
+                    info!("UDP server shutting down, draining in-flight requests");
+                    break;
                 }
             }
         }
+
+        crate::server::common::drain_permits(
+            &self.concurrent_limit,
+            self.config.max_connections,
+            Duration::from_secs(10),
+        )
+        .await;
+        info!("UDP server stopped");
+        Ok(())
     }
 
     /// Handle a single DNS request
@@ -416,6 +435,30 @@ mod tests {
         } else {
             panic!("Expected Config error");
         }
+    }
+
+    #[tokio::test]
+    async fn test_run_stops_on_shutdown() {
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let config = ServerConfig::default()
+            .with_udp_addr("127.0.0.1:0".parse().unwrap())
+            .with_shutdown_rx(rx);
+        let handler = Arc::new(DefaultHandler);
+        let server = Arc::new(UdpServer::new(config, handler).await.unwrap());
+
+        let task = tokio::spawn({
+            let server = Arc::clone(&server);
+            async move { UdpServer::run(&server).await }
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        tx.send(true).unwrap();
+
+        let result = tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .expect("run() must return after shutdown signal")
+            .unwrap();
+        assert!(result.is_ok());
     }
 
     #[tokio::test]

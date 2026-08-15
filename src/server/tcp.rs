@@ -92,11 +92,21 @@ impl TcpServer {
     ///
     /// Returns an error if there is a network or processing error.
     pub async fn run(&self) -> Result<()> {
+        let shutdown = self.config.shutdown_rx.clone();
+
         info!("TCP server started");
 
         loop {
-            match self.listener.accept().await {
-                Ok((stream, peer_addr)) => {
+            tokio::select! {
+                accepted = self.listener.accept() => {
+                    let (stream, peer_addr) = match accepted {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            error!("Error accepting TCP connection: {}", e);
+                            // Continue serving despite errors
+                            continue;
+                        }
+                    };
                     debug!("Accepted connection from {}", peer_addr);
 
                     // Try to acquire a permit without waiting
@@ -128,12 +138,21 @@ impl TcpServer {
                         }
                     });
                 }
-                Err(e) => {
-                    error!("Error accepting TCP connection: {}", e);
-                    // Continue serving despite errors
+                _ = crate::server::common::await_shutdown(&shutdown) => {
+                    info!("TCP server shutting down, draining in-flight connections");
+                    break;
                 }
             }
         }
+
+        crate::server::common::drain_permits(
+            &self.concurrent_limit,
+            self.config.max_connections,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        info!("TCP server stopped");
+        Ok(())
     }
 
     /// Handle a single TCP connection

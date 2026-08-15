@@ -114,6 +114,11 @@ fn normalize_listen_addr(listen: &str) -> String {
 pub struct ServerLauncher {
     /// Reference to the plugin registry
     registry: Arc<Registry>,
+    /// Shutdown bus shared by every launched server
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    /// Join handles of launched server tasks, for orderly shutdown
+    tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl ServerLauncher {
@@ -138,7 +143,39 @@ impl ServerLauncher {
     /// let launcher = ServerLauncher::new(registry);
     /// ```
     pub fn new(registry: Arc<Registry>) -> Self {
-        Self { registry }
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        Self {
+            registry,
+            shutdown_tx,
+            shutdown_rx,
+            tasks: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Ask every launched server to stop accepting and drain in-flight work.
+    pub fn trigger_shutdown(&self) {
+        let _ = self.shutdown_tx.send(true);
+    }
+
+    /// Wait for all server tasks to finish, up to `timeout`. Returns false
+    /// when the timeout hit; remaining tasks are then aborted.
+    pub async fn wait_for_servers(&self, timeout: std::time::Duration) -> bool {
+        let handles: Vec<_> = self.tasks.lock().unwrap().drain(..).collect();
+        let drain = std::sync::Arc::new(tokio::sync::Mutex::new(handles));
+        let wait_all = async {
+            let mut guard = drain.lock().await;
+            while let Some(handle) = guard.pop() {
+                let _ = handle.await;
+            }
+        };
+        if tokio::time::timeout(timeout, wait_all).await.is_ok() {
+            return true;
+        }
+        let mut guard = drain.lock().await;
+        while let Some(handle) = guard.pop() {
+            handle.abort();
+        }
+        false
     }
 
     /// Launch all servers configured in the plugin list.
@@ -266,8 +303,10 @@ impl ServerLauncher {
     }
 
     // Spawn a server future in a background task, returning a receiver that
-    // fires when the task has started. All launch_* methods funnel through here.
+    // fires when the task has started. All launch_* methods funnel through
+    // here; the JoinHandle is kept for wait_for_servers.
     fn spawn_server<F>(
+        &self,
         label: &str,
         addr: SocketAddr,
         result: Result<F, crate::Error>,
@@ -279,12 +318,13 @@ impl ServerLauncher {
             Ok(server_fut) => {
                 let label = label.to_string();
                 let (tx, rx) = tokio::sync::oneshot::channel();
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     let _ = tx.send(());
                     if let Err(e) = server_fut.await {
                         error!("{} server error: {}", label, e);
                     }
                 });
+                self.tasks.lock().unwrap().push(handle);
                 Some(rx)
             }
             Err(e) => {
@@ -303,13 +343,14 @@ impl ServerLauncher {
         let entry = self.get_entry(&args);
         let config = ServerConfig {
             udp_addr: Some(addr),
+            shutdown_rx: self.shutdown_rx.clone(),
             ..Default::default()
         };
         let handler = self.create_handler(entry);
         let result = UdpServer::new(config, handler)
             .await
             .map(|s| async move { s.run().await });
-        Self::spawn_server("UDP", addr, result)
+        self.spawn_server("UDP", addr, result)
     }
 
     async fn launch_tcp_server(
@@ -321,13 +362,14 @@ impl ServerLauncher {
         let entry = self.get_entry(&args);
         let config = ServerConfig {
             tcp_addr: Some(addr),
+            shutdown_rx: self.shutdown_rx.clone(),
             ..Default::default()
         };
         let handler = self.create_handler(entry);
         let result = TcpServer::new(config, handler)
             .await
             .map(|s| async move { s.run().await });
-        Self::spawn_server("TCP", addr, result)
+        self.spawn_server("TCP", addr, result)
     }
 
     #[cfg(feature = "doh")]
@@ -373,6 +415,7 @@ impl ServerLauncher {
             tls_config: Some(tls),
             doh_path,
             trust_forwarded_for,
+            shutdown_rx: self.shutdown_rx.clone(),
             cert_path: Some(cert_path.to_string()),
             key_path: Some(key_path.to_string()),
             ..Default::default()
@@ -381,7 +424,7 @@ impl ServerLauncher {
         let result = DohServer::from_config(config)
             .await
             .map(|s| async move { s.run().await });
-        Self::spawn_server("DoH", addr, result)
+        self.spawn_server("DoH", addr, result)
     }
 
     #[cfg(not(feature = "doh"))]
@@ -427,6 +470,7 @@ impl ServerLauncher {
             tcp_addr: Some(addr),
             handler: Some(handler),
             tls_config: Some(tls),
+            shutdown_rx: self.shutdown_rx.clone(),
             cert_path: Some(cert_path.to_string()),
             key_path: Some(key_path.to_string()),
             ..Default::default()
@@ -435,7 +479,7 @@ impl ServerLauncher {
         let result = DotServer::from_config(config)
             .await
             .map(|s| async move { s.run().await });
-        Self::spawn_server("DoT", addr, result)
+        self.spawn_server("DoT", addr, result)
     }
 
     #[cfg(not(feature = "dot"))]
@@ -472,6 +516,7 @@ impl ServerLauncher {
         let config = ServerConfig {
             tcp_addr: Some(addr),
             handler: Some(handler),
+            shutdown_rx: self.shutdown_rx.clone(),
             cert_path: Some(cert_path.to_string()),
             key_path: Some(key_path.to_string()),
             ..Default::default()
@@ -480,7 +525,7 @@ impl ServerLauncher {
         let result = DoqServer::from_config(config)
             .await
             .map(|s| async move { s.run().await });
-        Self::spawn_server("DoQ", addr, result)
+        self.spawn_server("DoQ", addr, result)
     }
 
     #[cfg(not(feature = "doq"))]
@@ -539,11 +584,12 @@ impl ServerLauncher {
 
         let state = AdminState::new(Arc::clone(&config), Arc::clone(&self.registry));
         let server = AdminServer::new(addr, state);
+        let shutdown_rx = self.shutdown_rx.clone();
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             info!("Admin server task started");
-            if let Err(e) = server.run_with_signal(Some(tx), None).await {
+            if let Err(e) = server.run_with_signal(Some(tx), Some(shutdown_rx)).await {
                 error!("Admin server error: {}", e);
             }
             info!("Admin server task finished");
@@ -591,12 +637,14 @@ impl ServerLauncher {
         }
 
         let (startup_tx, startup_rx) = tokio::sync::oneshot::channel();
+        let shutdown_rx = self.shutdown_rx.clone();
 
         tokio::spawn(async move {
             info!("Monitoring server task started");
-            // No external shutdown receiver provided - the server will listen to
-            // OS signals itself for graceful shutdown.
-            if let Err(e) = server.run_with_signal(Some(startup_tx), None).await {
+            if let Err(e) = server
+                .run_with_signal(Some(startup_tx), Some(shutdown_rx))
+                .await
+            {
                 error!("Monitoring server error: {}", e);
             }
             info!("Monitoring server task finished");
@@ -660,12 +708,13 @@ impl ServerLauncher {
         // Clone references for the spawned task
         let registry = Arc::clone(&self.registry);
         let global_config = Arc::clone(&config);
+        let shutdown_rx = self.shutdown_rx.clone();
 
         tokio::spawn(async move {
             match crate::WebServer::with_admin(web_config, registry, global_config).await {
                 Ok(server) => {
                     let _ = startup_tx.send(());
-                    if let Err(e) = server.run().await {
+                    if let Err(e) = server.run_with_shutdown(shutdown_rx).await {
                         error!("WebUI server error: {}", e);
                     }
                 }

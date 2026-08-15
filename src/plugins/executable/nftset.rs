@@ -191,7 +191,7 @@ impl Plugin for NftSetPlugin {
             // On Linux, try to apply to system nftables; otherwise keep metadata.
             #[cfg(target_os = "linux")]
             {
-                use std::process::Command;
+                use tokio::process::Command;
                 for (set_name, prefix) in &added_v4 {
                     if let Some(sa) = &self.args.ipv4
                         && let (Some(table_family), Some(table)) = (&sa.table_family, &sa.table)
@@ -207,7 +207,8 @@ impl Plugin for NftSetPlugin {
                                 prefix.as_str(),
                                 "}",
                             ])
-                            .status();
+                            .status()
+                            .await;
                         match status {
                             Ok(s) if s.success() => {}
                             Ok(s) => {
@@ -234,7 +235,8 @@ impl Plugin for NftSetPlugin {
                                 prefix.as_str(),
                                 "}",
                             ])
-                            .status();
+                            .status()
+                            .await;
                         match status {
                             Ok(s) if s.success() => {}
                             Ok(s) => {
