@@ -50,16 +50,64 @@ pub fn read_cgroup_memory() -> Option<CgroupMemoryStats> {
     read_cgroup_v1_memory().ok()
 }
 
+/// The process's own cgroup path from /proc/self/cgroup.
+///
+/// v2 entry: `0::<path>` (empty controller list). v1 entry: the line whose
+/// controller list contains `memory`, as `<hierarchy>:memory:<path>`.
+fn own_cgroup_path(v2: bool) -> Option<String> {
+    let content = fs::read_to_string("/proc/self/cgroup").ok()?;
+    for line in content.lines() {
+        let mut parts = line.splitn(3, ':');
+        parts.next()?;
+        let controllers = parts.next().unwrap_or("");
+        let path = parts.next().unwrap_or("");
+        if v2 {
+            if controllers.is_empty() {
+                return Some(path.to_string());
+            }
+        } else if controllers.split(',').any(|c| c == "memory") {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
+/// Whether we run inside a container (docker/podman markers).
+fn in_container() -> bool {
+    Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists()
+}
+
+/// Directory holding this process's memory controller files.
+///
+/// Resolving through /proc/self/cgroup matters: reading the mount root
+/// directly reports the ROOT cgroup, which on a cgroup-v2 host is the whole
+/// machine mislabeled as process/container memory. A root path only means
+/// "the container itself" when actually inside one, where the mount root IS
+/// the container's cgroup.
+fn own_cgroup_dir(mount: &str, v2: bool) -> io::Result<std::path::PathBuf> {
+    let path = own_cgroup_path(v2)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no matching cgroup entry"))?;
+    if path == "/" && !in_container() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "root cgroup on a host is not process memory",
+        ));
+    }
+    Ok(Path::new(mount).join(path.trim_start_matches('/')))
+}
+
 /// Read cgroup v2 memory statistics
 ///
-/// Reads from /sys/fs/cgroup/memory.current and /sys/fs/cgroup/memory.max
+/// Reads memory.current and memory.max from the process's own cgroup.
 fn read_cgroup_v2_memory() -> io::Result<CgroupMemoryStats> {
-    let usage_bytes = fs::read_to_string("/sys/fs/cgroup/memory.current")?
+    let dir = own_cgroup_dir("/sys/fs/cgroup", true)?;
+
+    let usage_bytes = fs::read_to_string(dir.join("memory.current"))?
         .trim()
         .parse::<u64>()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    let limit_bytes = fs::read_to_string("/sys/fs/cgroup/memory.max")
+    let limit_bytes = fs::read_to_string(dir.join("memory.max"))
         .ok()
         .and_then(|content| {
             let trimmed = content.trim();
@@ -79,15 +127,17 @@ fn read_cgroup_v2_memory() -> io::Result<CgroupMemoryStats> {
 
 /// Read cgroup v1 memory statistics
 ///
-/// Reads from /sys/fs/cgroup/memory/memory.usage_in_bytes and
-/// /sys/fs/cgroup/memory/memory.limit_in_bytes
+/// Reads memory.usage_in_bytes and memory.limit_in_bytes from the process's
+/// own memory-controller cgroup.
 fn read_cgroup_v1_memory() -> io::Result<CgroupMemoryStats> {
-    let usage_bytes = fs::read_to_string("/sys/fs/cgroup/memory/memory.usage_in_bytes")?
+    let dir = own_cgroup_dir("/sys/fs/cgroup/memory", false)?;
+
+    let usage_bytes = fs::read_to_string(dir.join("memory.usage_in_bytes"))?
         .trim()
         .parse::<u64>()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    let limit_bytes = fs::read_to_string("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+    let limit_bytes = fs::read_to_string(dir.join("memory.limit_in_bytes"))
         .ok()
         .and_then(|content| {
             let limit = content.trim().parse::<u64>().ok()?;
@@ -558,24 +608,15 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn test_read_cgroup_memory_fallback() {
-        // Test the fallback behavior from v2 to v1
-        // This is tested by the implementation that tries v2 first, then v1
-        let result = read_cgroup_memory();
-
-        // The function should return None if neither v1 nor v2 is available
-        // or Some if either is available
-        match result {
-            Some(stats) => {
-                println!("Read cgroup stats (v2 or v1): usage={}", stats.usage_bytes);
-                // If we got stats, version detection should also work
-                assert!(detect_cgroup_version().is_some());
-            }
-            None => {
-                println!("No cgroup available");
-                // If no stats, version detection should also return None
-                // (unless there's a race condition)
-            }
+        // The implementation tries v2 first, then v1; either way it must not
+        // panic. Success and version detection are independent: reads go
+        // through /proc/self/cgroup while detection probes mount roots.
+        if let Some(stats) = read_cgroup_memory() {
+            println!("Read cgroup stats (v2 or v1): usage={}", stats.usage_bytes);
+        } else {
+            println!("No cgroup available");
         }
+        let _ = detect_cgroup_version();
     }
 
     #[cfg(target_os = "linux")]
