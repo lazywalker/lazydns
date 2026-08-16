@@ -1446,7 +1446,7 @@ name = "lazydns-macros"
 version = "0.2.62"
 dependencies = [
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
