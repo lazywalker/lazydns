@@ -100,7 +100,7 @@ name = "arc_str_bench"
 tokio = { version = "1.49", default-features = false, features = ["macros", "process", "rt", "signal"] }
 
 # DNS protocol
-hickory-proto = "0.24"
+hickory-proto = "0.26"
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }
