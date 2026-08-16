@@ -129,7 +129,7 @@ dashmap = "6.1"
 parking_lot = "0.12"
 
 # LRU cache
-lru = "0.16"
+lru = "0.18"
 
 # Networking
 # FIXME: connection will reset when test curl with admin features with http2
